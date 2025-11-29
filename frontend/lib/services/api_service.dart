@@ -69,4 +69,30 @@ class ApiService {
       throw Exception('Failed to get cluster: ${response.body}');
     }
   }
+
+  Future<void> sendGenresToApi(String userId, List<int> genres) async {
+  final baseUrl = dotenv.env['API_BASE_URL'];
+  final url = Uri.parse("$baseUrl/user/genres/");
+
+  final body = jsonEncode({
+    "user_id": userId,
+    "preferred_genres": genres,  // e.g., [1, 0, 1, 0, 1, 0, ...]
+  });
+
+  final response = await http.post(
+    url,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: body,
+  );
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    print("Cluster: ${data['cluster']}");
+    print("Recommendations: ${data['recommendations']}");
+  } else {
+    print("Failed to send genres: ${response.statusCode}");
+  }
+}
 }

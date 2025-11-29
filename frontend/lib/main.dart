@@ -13,7 +13,8 @@ import 'package:flutter/foundation.dart';       // for kIsWeb
 import 'services/api_service.dart';
 
 void main() async {
-  final apiService = ApiService(baseUrl: 'http://192.168.0.4:8000');
+  await dotenv.load(fileName: ".env");
+  final apiService = ApiService(baseUrl: dotenv.env['API_BASE_URL']!);
   WidgetsFlutterBinding.ensureInitialized();
   
   
