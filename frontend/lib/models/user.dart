@@ -6,6 +6,7 @@ class User {
   final int? age;
   final int? occupation;
   final String? zipCode;
+  List<int>? preferredGenres;
 
   // Getters for convenience
   String get id => userId;
@@ -19,6 +20,7 @@ class User {
     this.age,
     this.occupation,
     this.zipCode,
+    this.preferredGenres,
   });
 
   // Create User from database map

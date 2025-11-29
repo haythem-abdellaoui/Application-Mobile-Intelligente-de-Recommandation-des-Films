@@ -50,3 +50,9 @@ def cluster_user_genres(data: ClusterInput):
     arr = np.array(data.features).reshape(1, -1)
     cluster = kmeans_model_users_based_on_genres.predict(arr)
     return {"cluster": int(cluster[0])}
+
+print("Features for kmeans_ratings model:")
+print(kmeans_model_users_based_on_rating.feature_names_in_)
+
+print("\nFeatures for kmeans_genres model:")
+print(kmeans_model_users_based_on_genres.feature_names_in_)

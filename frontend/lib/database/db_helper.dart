@@ -236,6 +236,19 @@ class DatabaseHelper {
     return count > 0;
   }
 
+  Future<void> updateUserGenres(String userId, List<int> genres) async {
+  final db = await database;
+  await db.update(
+    'users',
+    {'preferred_genres': genres.join(',')}, // store as string
+    where: 'userId = ?',
+    whereArgs: [userId],
+  );
+}
+
+
+
+
   
     
 }

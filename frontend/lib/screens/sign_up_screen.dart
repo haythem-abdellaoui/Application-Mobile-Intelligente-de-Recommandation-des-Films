@@ -3,6 +3,7 @@ import '../themes/app_theme.dart';
 import 'login_screen.dart';
 import '../database/db_helper.dart';
 import '../models/user.dart';
+import 'select_genres_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -132,7 +133,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         
         // Navigate to login screen after successful sign up
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          MaterialPageRoute(builder: (context) => SelectGenresScreen(userId: userId)),
         );
       }
     } catch (e) {

@@ -10,9 +10,10 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:io' show Platform;                  // for Platform checks
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';  // for sqflite FFI on desktop
 import 'package:flutter/foundation.dart';       // for kIsWeb
-
+import 'services/api_service.dart';
 
 void main() async {
+  final apiService = ApiService(baseUrl: 'http://192.168.0.4:8000');
   WidgetsFlutterBinding.ensureInitialized();
   
   
