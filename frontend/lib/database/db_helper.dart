@@ -52,13 +52,30 @@ class DatabaseHelper {
       final databasesPath = await getDatabasesPath();
       String path = join(databasesPath, 'movies.db');
       print('🗄️ [DatabaseHelper] Database path: $path');
+
+      final tempDb = await openDatabase(path);
+int currentVersion = await tempDb.getVersion();
+print('📝 Current database version: $currentVersion');
+final tables = await tempDb.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+print(tables);
+
+final columns = await tempDb.rawQuery("PRAGMA table_info(users)");
+print(columns);
+
+final user = await tempDb.query(
+  'users',
+  where: 'username = ?',
+  whereArgs: ['Ahlem'],
+);
+print(user);
+await tempDb.close();
       
       // Small delay to ensure factory is ready
       await Future.delayed(const Duration(milliseconds: 50));
       
       final db = await openDatabase(
         path,
-        version: 3, // Increment version to trigger migration
+        version: 5, // Increment version to trigger migration
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
@@ -74,7 +91,7 @@ class DatabaseHelper {
         String path = join(databasesPath, 'movies.db');
         final db = await openDatabase(
           path,
-          version: 3,
+          version: 5,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         );
@@ -110,7 +127,9 @@ class DatabaseHelper {
         gender TEXT,
         age INTEGER,
         occupation INTEGER,
-        zipCode TEXT
+        zipCode TEXT,
+        preferred_genres TEXT
+
       )
     ''');
     print('✅ [DatabaseHelper] Created users table');
@@ -136,12 +155,21 @@ class DatabaseHelper {
             gender TEXT,
             age INTEGER,
             occupation INTEGER,
-            zipCode TEXT
+            zipCode TEXT,
+            preferred_genres TEXT
           )
         ''');
         print('✅ [DatabaseHelper] Created users table');
       } catch (e) {
         print('⚠️ [DatabaseHelper] Error creating users table: $e');
+      }
+    }
+    if (oldVersion < 5) { // 4 is the version where preferred_genres is added
+      try {
+        await db.execute('ALTER TABLE users ADD COLUMN preferred_genres TEXT');
+        print('✅ [DatabaseHelper] Added preferred_genres column to users table');
+      } catch (e) {
+        print('⚠️ [DatabaseHelper] preferred_genres column may already exist: $e');
       }
     }
   }
@@ -187,6 +215,7 @@ class DatabaseHelper {
         'age': user.age,
         'occupation': user.occupation,
         'zipCode': user.zipCode,
+        'preferred_genres': user.preferredGenres?.join(','),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -242,7 +271,7 @@ class DatabaseHelper {
     'users',
     {'preferred_genres': genres.join(',')}, // store as string
     where: 'userId = ?',
-    whereArgs: [userId],
+    whereArgs: [userId.toString()],
   );
 }
 

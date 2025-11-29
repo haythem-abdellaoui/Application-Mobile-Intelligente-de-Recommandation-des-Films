@@ -33,6 +33,7 @@ class User {
       age: map['age'] as int?,
       occupation: map['occupation'] as int?,
       zipCode: map['zipCode'] as String?,
+      preferredGenres: (map['preferred_genres'] as String?)?.split(',').map(int.parse).toList(),
     );
   }
 
@@ -46,6 +47,7 @@ class User {
       'age': age,
       'occupation': occupation,
       'zipCode': zipCode,
+      'preferred_genres': preferredGenres?.join(','),
     };
   }
 
