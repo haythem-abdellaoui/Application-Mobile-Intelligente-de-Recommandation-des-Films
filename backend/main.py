@@ -20,13 +20,43 @@ def test_genre_cluster(user: UserGenres):
         raise HTTPException(status_code=422, detail="preferred_genres must have at least 7 elements")
     try:
         merged_features = [
-            g[2] | g[3],
-            g[2] | g[4],
+            int(g[2]) | int(g[3]),
+            int(g[2]) | int(g[4]),
         ]
-        cluster_label = genre_cluster_model.predict([merged_features])[0]
+        cluster_label = int(genre_cluster_model.predict([merged_features])[0])
+
+        # Connect to MySQL
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="movies_mobile"
+        )
+        cursor = conn.cursor(dictionary=True)
+
+        # Fetch movies whose genres match the user's preferred genres
+        # Here we just do a simple filter: movies containing any of the preferred genres
+        preferred_genre_indices = [i for i, val in enumerate(g) if val == 1]
+        genre_names = ['Comedy','Drama','Action','Sci-Fi','Thriller','Romance','Adventure','Crime']
+        selected_genres = [genre_names[i] for i in preferred_genre_indices]
+
+        genre_conditions = " OR ".join(["genres LIKE %s" for _ in selected_genres])
+        sql = f"SELECT * FROM movies WHERE {genre_conditions} ORDER BY rating DESC LIMIT 10"
+
+        cursor.execute(sql, [f"%{genre}%" for genre in selected_genres])
+        recommended_movies = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return {"user_id": user.user_id, "cluster": int(cluster_label)}
+
+    return {
+        "user_id": user.user_id,
+        "cluster": cluster_label,
+        "recommended_movies": recommended_movies
+    }
 
 
 # sending data to mysql
