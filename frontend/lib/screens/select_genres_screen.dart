@@ -3,6 +3,8 @@ import '../themes/app_theme.dart';
 import '../database/db_helper.dart';
 import '../models/user.dart';
 import 'home_screen.dart';
+import '../services/api_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class SelectGenresScreen extends StatefulWidget {
   final String userId;
@@ -43,6 +45,8 @@ class _SelectGenresScreenState extends State<SelectGenresScreen> {
 
     // Navigate to home screen
     if (mounted) {
+        await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).sendGenresToApi(widget.userId, _selectedGenres.map((e) => e ? 1 : 0).toList());
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );

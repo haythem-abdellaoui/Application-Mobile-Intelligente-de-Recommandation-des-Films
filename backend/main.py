@@ -1,58 +1,27 @@
-from fastapi import FastAPI
-import joblib
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import numpy as np
+from joblib import load
 
 app = FastAPI()
 
-xgb_model_like_vs_dislike = joblib.load("models/xgb_classifier_predicting_like_vs_dislike_model.pkl")
-kmeans_model_users_based_on_rating = joblib.load("models/kmeans_model_cluster_users_based_on_their_training.pkl")
-xgb_model_predicting_future_movie_ratings = joblib.load("models/xgb_predicting_future_movie_ratings_model.pkl")
-kmeans_model_users_based_on_genres = joblib.load("models/users_with_same_genres_preferences_cluster.pkl")
+genre_cluster_model = load("models/users_with_same_genres_preferences_cluster.pkl")
+print(">>> RUNNING main.py <<<")
 
-@app.get("/")
-def read_root():
-    return {"message": "API is running"}
+class UserGenres(BaseModel):
+    user_id: str
+    preferred_genres: list[int]
 
-# For rating polarity classifier
-class LikeDislikeInput(BaseModel):
-    features: list
-
-@app.post("/predict-like-dislike")
-def predict_like_dislike(data: LikeDislikeInput):
-    arr = np.array(data.features).reshape(1, -1)
-    pred = xgb_model_like_vs_dislike.predict(arr)
-    return {"like_dislike": int(pred[0])}
-
-# For predicting future ratings
-class RatingInput(BaseModel):
-    features: list
-
-@app.post("/predict-rating")
-def predict_rating(data: RatingInput):
-    arr = np.array(data.features).reshape(1, -1)
-    pred = xgb_model_predicting_future_movie_ratings.predict(arr)
-    return {"predicted_rating": float(pred[0])}
-
-# For clustering users based on ratings
-class ClusterInput(BaseModel):
-    features: list
-
-@app.post("/cluster-user-ratings")
-def cluster_user_ratings(data: ClusterInput):
-    arr = np.array(data.features).reshape(1, -1)
-    cluster = kmeans_model_users_based_on_rating.predict(arr)
-    return {"cluster": int(cluster[0])}
-
-# For clustering users based on genres
-@app.post("/cluster-user-genres")
-def cluster_user_genres(data: ClusterInput):
-    arr = np.array(data.features).reshape(1, -1)
-    cluster = kmeans_model_users_based_on_genres.predict(arr)
-    return {"cluster": int(cluster[0])}
-
-print("Features for kmeans_ratings model:")
-print(kmeans_model_users_based_on_rating.feature_names_in_)
-
-print("\nFeatures for kmeans_genres model:")
-print(kmeans_model_users_based_on_genres.feature_names_in_)
+@app.post("/cluster")
+def test_genre_cluster(user: UserGenres):
+    g = user.preferred_genres
+    if len(g) < 7:
+        raise HTTPException(status_code=422, detail="preferred_genres must have at least 7 elements")
+    try:
+        merged_features = [
+            g[2] | g[3],
+            g[2] | g[4],
+        ]
+        cluster_label = genre_cluster_model.predict([merged_features])[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"user_id": user.user_id, "cluster": int(cluster_label)}

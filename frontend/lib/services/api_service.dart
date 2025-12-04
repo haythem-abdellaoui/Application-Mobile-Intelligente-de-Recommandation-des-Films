@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ApiService {
   final String baseUrl;
@@ -76,7 +77,7 @@ class ApiService {
 
   final body = jsonEncode({
     "user_id": userId,
-    "preferred_genres": genres,  // e.g., [1, 0, 1, 0, 1, 0, ...]
+    "preferred_genres": genres,  
   });
 
   final response = await http.post(

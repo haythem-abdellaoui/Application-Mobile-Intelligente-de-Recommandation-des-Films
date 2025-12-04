@@ -11,6 +11,13 @@ import 'dart:io' show Platform;                  // for Platform checks
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';  // for sqflite FFI on desktop
 import 'package:flutter/foundation.dart';       // for kIsWeb
 import 'services/api_service.dart';
+import 'database/db_helper.dart';
+import 'dart:io';
+import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 
 void main() async {
   await dotenv.load(fileName: ".env");
