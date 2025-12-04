@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from joblib import load
+from typing import List, Dict, Optional
+import mysql.connector
 
 app = FastAPI()
 
@@ -25,3 +27,68 @@ def test_genre_cluster(user: UserGenres):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"user_id": user.user_id, "cluster": int(cluster_label)}
+
+
+# sending data to mysql
+
+class Movie(BaseModel):
+    id: str
+    title: str
+    genres: Optional[str] = None
+    rating: Optional[float] = None
+    year: Optional[int] = None
+    description: Optional[str] = None
+    posterUrl: Optional[str] = None
+
+class User(BaseModel):
+    userId: str
+    username: str
+    password: str
+    gender: Optional[str] = None
+    age: Optional[int] = None
+    occupation: Optional[int] = None
+    zipCode: Optional[str] = None
+    preferred_genres: Optional[str] = None
+
+class DataPayload(BaseModel):
+    movies: List[Movie]
+    users: List[User]
+
+@app.post("/upload-sqlite-data")
+def upload_sqlite_data(payload: DataPayload):
+    try:
+        # Connect to MySQL
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="movies_mobile"
+        )
+        cursor = conn.cursor()
+
+        # Insert movies
+        for movie in payload.movies:
+            cursor.execute(
+                """INSERT INTO movies (id, title, genres, rating, year, description, posterUrl)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   ON DUPLICATE KEY UPDATE title=VALUES(title)""",
+                (movie.id, movie.title, movie.genres, movie.rating, movie.year, movie.description, movie.posterUrl)
+            )
+
+        # Insert users
+        for user in payload.users:
+            cursor.execute(
+                """INSERT INTO users (userId, username, password, gender, age, occupation, zipCode, preferred_genres)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   ON DUPLICATE KEY UPDATE username=VALUES(username)""",
+                (user.userId, user.username, user.password, user.gender, user.age, user.occupation, user.zipCode, user.preferred_genres)
+            )
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"status": "success", "movies_inserted": len(payload.movies), "users_inserted": len(payload.users)}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

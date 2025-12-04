@@ -17,6 +17,8 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 
 void main() async {
@@ -48,6 +50,35 @@ void main() async {
   // Check if database already has data
   try {
     final db = await DatabaseHelper().database;
+    // Read movies table
+    final List<Map<String, dynamic>> moviesData = await db.query('movies');
+    final List<Map<String, dynamic>> moviesJson = moviesData.map((row) => row).toList();
+    print("🎬 [Main] Movies loaded: ${moviesJson.length} records");
+
+    // Read users table
+    final List<Map<String, dynamic>> usersData = await db.query('users');
+    final List<Map<String, dynamic>> usersJson = usersData.map((row) => row).toList();
+    print("👥 [Main] Users loaded: ${usersJson.length} records");
+
+    // Optional: combined JSON ready to send
+    final Map<String, dynamic> jsonData = {
+      "movies": moviesJson,
+      "users": usersJson
+    };
+    print("✅ [Main] Combined JSON ready to send: ${jsonData.keys.toList()}");
+    final uri = Uri.parse('${apiService.baseUrl}/upload-sqlite-data');
+    final response = await http.post(
+      uri,
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(jsonData),
+    );
+
+    if (response.statusCode == 200) {
+      print("✅ Data uploaded successfully: ${response.body}");
+    } else {
+      print("❌ Upload failed: ${response.body}");
+    }
+
     final count = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM movies')
     ) ?? 0;
