@@ -132,5 +132,28 @@ class ApiService {
   }
 }
 
+Future<void> updateUserGenresOnServerByUsername(
+    String username, List<int> genres) async {
+  final body = {
+    "username": username,
+    "preferred_genres": genres,
+  };
+
+  final uri = Uri.parse('$baseUrl/update-user-genres');
+
+  final response = await http.put(
+    uri,
+    headers: {"Content-Type": "application/json"},
+    body: jsonEncode(body),
+  );
+
+  if (response.statusCode == 200) {
+    print("✅ User genres updated successfully for $username");
+  } else {
+    print("❌ Failed to update user genres for $username: ${response.body}");
+  }
+}
+
+
 
 }

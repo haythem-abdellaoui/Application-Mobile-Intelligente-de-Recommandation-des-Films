@@ -158,3 +158,41 @@ def add_user(user: User):
     conn.close()
 
     return {"status": "success", "userId": user_id}
+
+class UserGenresUpdate(BaseModel):
+    username: str
+    preferred_genres: list[int]
+
+@app.put("/update-user-genres")
+def update_user_genres(payload: UserGenresUpdate):
+    try:
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="movies_mobile"
+        )
+        cursor = conn.cursor()
+
+        # Convert list of integers to comma-separated string
+        genres_str = ','.join(map(str, payload.preferred_genres))
+        print(f"🔹 Received payload: {payload.dict()}")
+        print(f"🔹 Converted preferred_genres to string: {genres_str}")
+
+        # Update by username
+        cursor.execute(
+            "UPDATE users SET preferred_genres = %s WHERE username = %s",
+            (genres_str, payload.username)
+        )
+        conn.commit()
+
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail=f"No user found with username {payload.username}")
+
+        cursor.close()
+        conn.close()
+
+        return {"status": "success", "username": payload.username}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

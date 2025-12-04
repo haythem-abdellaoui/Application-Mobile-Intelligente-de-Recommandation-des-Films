@@ -41,6 +41,10 @@ class _SelectGenresScreenState extends State<SelectGenresScreen> {
     if (user != null) {
       user.preferredGenres = _selectedGenres.map((e) => e ? 1 : 0).toList();
       await db.updateUserGenres(user.userId, user.preferredGenres!);
+
+      // Update on server using username
+      await ApiService(baseUrl: dotenv.env['API_BASE_URL']!)
+          .updateUserGenresOnServerByUsername(user.username, user.preferredGenres!);
     }
 
     // Navigate to home screen
