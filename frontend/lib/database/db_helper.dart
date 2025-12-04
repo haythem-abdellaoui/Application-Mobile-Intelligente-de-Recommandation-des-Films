@@ -281,6 +281,41 @@ await tempDb.close();
   );
 }
 
+Future<void> insertUsersBatch(List<User> users) async {
+  final db = await database;
+  final batch = db.batch();
+
+  for (int i = 0; i < users.length; i++) {
+    var user = users[i];
+
+    // Ensure unique userId
+    final userId = user.userId.isNotEmpty ? user.userId : DateTime.now().millisecondsSinceEpoch.toString() + "_$i";
+
+    // Ensure unique username
+    final username = (user.username.isNotEmpty ? user.username : "user_$userId") + "_$i";
+
+    batch.insert(
+      'users',
+      {
+        'userId': userId,
+        'username': username,
+        'password': user.password.isNotEmpty ? user.password : 'default_password',
+        'gender': user.gender,
+        'age': user.age,
+        'occupation': user.occupation,
+        'zipCode': user.zipCode,
+        'preferred_genres': user.preferredGenres?.join(','),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  await batch.commit(noResult: true);
+  print('✅ [DatabaseHelper] Batch of ${users.length} users inserted successfully');
+}
+
+
+
 
 
 

@@ -48,7 +48,7 @@ class User(BaseModel):
     age: Optional[int] = None
     occupation: Optional[int] = None
     zipCode: Optional[str] = None
-    preferred_genres: Optional[str] = None
+    preferred_genres: Optional[str] = None  
 
 class DataPayload(BaseModel):
     movies: List[Movie]
@@ -80,15 +80,35 @@ def upload_sqlite_data(payload: DataPayload):
             cursor.execute(
                 """INSERT INTO users (userId, username, password, gender, age, occupation, zipCode, preferred_genres)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                   ON DUPLICATE KEY UPDATE username=VALUES(username)""",
-                (user.userId, user.username, user.password, user.gender, user.age, user.occupation, user.zipCode, user.preferred_genres)
+                   ON DUPLICATE KEY UPDATE
+                       username=VALUES(username),
+                       password=VALUES(password),
+                       gender=VALUES(gender),
+                       age=VALUES(age),
+                       occupation=VALUES(occupation),
+                       zipCode=VALUES(zipCode),
+                       preferred_genres=VALUES(preferred_genres)""",
+                (
+                    user.userId,
+                    user.username,
+                    user.password,
+                    user.gender if user.gender is not None else None,
+                    user.age if user.age is not None else None,
+                    user.occupation if user.occupation is not None else None,
+                    user.zipCode if user.zipCode is not None else None,
+                    user.preferred_genres if user.preferred_genres is not None else None
+                )
             )
 
         conn.commit()
         cursor.close()
         conn.close()
 
-        return {"status": "success", "movies_inserted": len(payload.movies), "users_inserted": len(payload.users)}
-    
+        return {
+            "status": "success",
+            "movies_inserted": len(payload.movies),
+            "users_inserted": len(payload.users)
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

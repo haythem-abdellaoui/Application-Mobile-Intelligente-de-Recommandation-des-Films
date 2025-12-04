@@ -109,26 +109,39 @@ class DataLoader {
 
       for (var line in LineSplitter.split(usersData)) {
         if (line.trim().isEmpty) continue;
-        final parts = line.split('|'); // split by | now
-        if (parts.length < 5) continue;
+        final parts = line.split('|');
+        if (parts.length < 1) continue; // only userId is mandatory
 
-        final userId = parts[0].trim();
-        // Generate default username and password for existing users from dataset
-        users.add(User(
-          userId: userId,
-          username: 'user_$userId', // Default username based on userId
-          password: 'default_password', // Default password (users should change this)
-          gender: parts[1].trim().isNotEmpty ? parts[1].trim() : null,
-          age: int.tryParse(parts[2].trim()),
-          occupation: int.tryParse(parts[3].trim()),
-          zipCode: parts[4].trim().isNotEmpty ? parts[4].trim() : null,
-        ));
+      final userId = parts[0].trim();
+
+      users.add(User(
+        userId: userId,
+        username: parts.length > 1 ? parts[1].trim() : 'user_$userId',
+        password: parts.length > 2 ? parts[2].trim() : 'default_password',
+        gender: parts.length > 3 ? parts[3].trim() : null,
+        age: parts.length > 4 ? int.tryParse(parts[4].trim()) : null,
+        occupation: parts.length > 5 ? int.tryParse(parts[5].trim()) : null,
+        zipCode: parts.length > 6 ? parts[6].trim() : null,
+        preferredGenres: parts.length > 7 
+            ? parts[7].split(',').map((g) => int.tryParse(g) ?? 0).toList()
+            : null,
+      ));
+      }
+
+      print('📊 [DataLoader] Loaded ${users.length} users from dataset');
+
+      if (users.isNotEmpty) {
+      print('💾 [DataLoader] Saving users to database...');
+      await DatabaseHelper().insertUsersBatch(users);
+      print('✅ [DataLoader] Users saved to database');
       }
 
       return users;
+
     } catch (e) {
-      debugPrint('Error loading users: $e');
+      print('❌ [DataLoader] Error loading users: $e');
       return [];
     }
   }
+
 }

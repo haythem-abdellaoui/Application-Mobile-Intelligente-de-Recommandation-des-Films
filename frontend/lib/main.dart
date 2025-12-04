@@ -50,6 +50,11 @@ void main() async {
   // Check if database already has data
   try {
     final db = await DatabaseHelper().database;
+    await DataLoader.loadUsers();
+
+    final count_users = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM users'));
+    print('Total users in DB: $count_users');
+    
     // Read movies table
     final List<Map<String, dynamic>> moviesData = await db.query('movies');
     final List<Map<String, dynamic>> moviesJson = moviesData.map((row) => row).toList();
@@ -57,7 +62,16 @@ void main() async {
 
     // Read users table
     final List<Map<String, dynamic>> usersData = await db.query('users');
-    final List<Map<String, dynamic>> usersJson = usersData.map((row) => row).toList();
+    final List<Map<String, dynamic>> usersJson = usersData.map((row) => {
+    "userId": row['userId'].toString(),
+    "username": row['username'] ?? "user_${row['userId']}",
+    "password": row['password'] ?? "default_password",
+    "gender": row['gender'],
+    "age": row['age'] != null ? int.tryParse(row['age'].toString()) : null,
+    "occupation": row['occupation'] != null ? int.tryParse(row['occupation'].toString()) : null,
+    "zipCode": row['zipCode'],
+    "preferred_genres": row['preferred_genres']?.toString(), // ensure string or null
+    }).toList();
     print("👥 [Main] Users loaded: ${usersJson.length} records");
 
     // Optional: combined JSON ready to send
