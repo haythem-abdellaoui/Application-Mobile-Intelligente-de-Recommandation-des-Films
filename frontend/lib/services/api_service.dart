@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/material.dart';
+import '../models/user.dart';
+
 
 class ApiService {
   final String baseUrl;
@@ -95,5 +98,39 @@ class ApiService {
   } else {
     print("Failed to send genres: ${response.statusCode}");
   }
+  }
+
+  Future<void> addUserToServer(User newUser) async {
+  final userId = newUser.userId.isNotEmpty
+      ? newUser.userId
+      : DateTime.now().millisecondsSinceEpoch.toString();
+
+  final body = {
+    "userId": userId,
+    "username": newUser.username,
+    "password": newUser.password,
+    "gender": newUser.gender ?? null,
+    "age": newUser.age ?? null,
+    "occupation": newUser.occupation ?? null,
+    "zipCode": newUser.zipCode ?? null,
+    "preferred_genres": newUser.preferredGenres?.join(',') ?? null,
+  };
+
+  final uri = Uri.parse('$baseUrl/add-user');
+
+  final response = await http.post(
+    uri,
+    headers: {"Content-Type": "application/json"},
+    body: jsonEncode(body),
+  );
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    print("✅ User added successfully, userId: ${data['userId']}");
+  } else {
+    print("❌ Failed to add user: ${response.body}");
+  }
 }
+
+
 }

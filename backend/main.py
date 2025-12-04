@@ -54,6 +54,7 @@ class DataPayload(BaseModel):
     movies: List[Movie]
     users: List[User]
 
+# upload data to mysql
 @app.post("/upload-sqlite-data")
 def upload_sqlite_data(payload: DataPayload):
     try:
@@ -112,3 +113,48 @@ def upload_sqlite_data(payload: DataPayload):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# add user
+@app.post("/add-user")
+def add_user(user: User):
+    # Generate userId if missing
+    user_id = user.userId or str(int(time.time() * 1000))
+    
+    # Insert into MySQL
+    conn = mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="movies_mobile"
+    )
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO users (userId, username, password, gender, age, occupation, zipCode, preferred_genres)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            username=VALUES(username),
+            password=VALUES(password),
+            gender=VALUES(gender),
+            age=VALUES(age),
+            occupation=VALUES(occupation),
+            zipCode=VALUES(zipCode),
+            preferred_genres=VALUES(preferred_genres)
+        """,
+        (
+            user_id,
+            user.username,
+            user.password,
+            user.gender,
+            user.age,
+            user.occupation,
+            user.zipCode,
+            user.preferred_genres
+        )
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"status": "success", "userId": user_id}

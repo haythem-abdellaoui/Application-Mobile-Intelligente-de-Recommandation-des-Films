@@ -4,6 +4,8 @@ import 'login_screen.dart';
 import '../database/db_helper.dart';
 import '../models/user.dart';
 import 'select_genres_screen.dart';
+import '../services/api_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -13,6 +15,7 @@ class SignUpScreen extends StatefulWidget {
 }
 
 class _SignUpScreenState extends State<SignUpScreen> {
+  final ApiService apiService = ApiService(baseUrl: dotenv.env['API_BASE_URL']!);
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -118,6 +121,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
       // Insert user into database
       final userId = await DatabaseHelper().insertUser(newUser);
+      await apiService.addUserToServer(newUser);
       
       setState(() {
         _isCheckingUsername = false;
