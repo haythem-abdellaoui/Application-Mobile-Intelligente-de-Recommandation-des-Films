@@ -3,6 +3,10 @@ from pydantic import BaseModel
 from joblib import load
 from typing import List, Dict, Optional
 import mysql.connector
+from xgboost import XGBRegressor
+import joblib
+import pandas as pd
+import time
 
 app = FastAPI()
 
@@ -298,4 +302,104 @@ async def receive_username(data: UsernameData):
 
     except Exception as e:
         print("🔥 ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+xgb_model = joblib.load("models/xgb_predicting_future_movie_ratings_model.pkl")  # adjust path
+
+class UserMovieRequest(BaseModel):
+    user_id: str
+    movie_id: str
+
+@app.post("/compute_features")
+def compute_features(req: UserMovieRequest):
+    try:
+        # Connect to MySQL
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="movies_mobile"
+        )
+        cursor = conn.cursor(dictionary=True)
+
+        # Fetch all users
+        cursor.execute("SELECT * FROM users")
+        users = pd.DataFrame(cursor.fetchall())
+
+        # Fetch all movies
+        cursor.execute("SELECT * FROM movies")
+        movies = pd.DataFrame(cursor.fetchall())
+
+        # Check if user/movie exist
+        if req.user_id not in users['userId'].values:
+            raise HTTPException(status_code=404, detail="User not found")
+        if req.movie_id not in movies['id'].values:
+            raise HTTPException(status_code=404, detail="Movie not found")
+
+        # User info
+        user = users[users['userId'] == req.user_id].iloc[0]
+
+        # For features needing user ratings, we only have movie ratings (global)
+        user_avg_rating = movies['rating'].mean()
+        user_std_rating = movies['rating'].std()
+
+        # Movie info
+        movie = movies[movies['id'] == req.movie_id].iloc[0]
+        movie_std_rating = movies['rating'].std()
+        movie_avg_viewer_age = users['age'].dropna().mean()  # average age across users
+        movie_popularity = len(movies)
+
+        # Occupation (convert to int if null)
+        user_occupation = int(user['occupation']) if user['occupation'] is not None else 0
+
+        # Average rating by occupation
+        avg_rating_by_occupation = movies['rating'].mean()  # placeholder
+
+        # Average rating by age
+        avg_rating_by_age = movies['rating'].mean()  # placeholder
+
+        # User-movie diff
+        user_movie_avg_diff = user_avg_rating - movie['rating']
+
+        # Cluster-based average rating (simplified)
+        avg_rating_by_cluster = movies['rating'].mean()
+
+        # Prepare feature vector for prediction
+        feature_vector = [
+            avg_rating_by_occupation,
+            user_avg_rating,
+            user_std_rating,
+            avg_rating_by_age,
+            user_movie_avg_diff,
+            movie_std_rating,
+            movie_avg_viewer_age,
+            movie_popularity,
+            user_occupation,
+            avg_rating_by_cluster
+        ]
+
+        # Predict the rating using the model
+        predicted_rating = float(xgb_model.predict([feature_vector])[0])
+
+        features = {
+            "avg_rating_by_occupation": avg_rating_by_occupation,
+            "user_avg_rating": user_avg_rating,
+            "user_std_rating": user_std_rating,
+            "avg_rating_by_age": avg_rating_by_age,
+            "user_movie_avg_diff": user_movie_avg_diff,
+            "movie_std_rating": movie_std_rating,
+            "movie_avg_viewer_age": movie_avg_viewer_age,
+            "movie_popularity": movie_popularity,
+            "Occupation": user_occupation,
+            "avg_rating_by_cluster": avg_rating_by_cluster,
+            "predicted_rating": predicted_rating
+        }
+
+        cursor.close()
+        conn.close()
+
+        print(f"🔹 Features & prediction for user {req.user_id} and movie {req.movie_id}: {features}")
+        return {"user_id": req.user_id, "movie_id": req.movie_id, "features": features}
+
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
