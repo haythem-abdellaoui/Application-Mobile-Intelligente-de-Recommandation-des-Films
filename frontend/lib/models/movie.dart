@@ -22,6 +22,20 @@ class Movie {
     this.posterUrl,
   });
 
+  factory Movie.fromJson(Map<String, dynamic> json) {
+    return Movie(
+      movieId: json['movieId']?.toString() ?? json['id']?.toString() ?? '',
+      title: json['title'] ?? '',
+      genres: json['genres'] is List 
+          ? List<String>.from(json['genres']) 
+          : (json['genres'] as String?)?.split(',') ?? [],
+      rating: (json['rating'] as num?)?.toDouble(),
+      year: json['year'] as int?,
+      description: json['description'],
+      posterUrl: json['posterUrl'],
+    );
+  }
+
   static Future<List<Movie>> getDummyMovies() async {
     try {
       print('🔍 [Movie] Fetching movies from database...');

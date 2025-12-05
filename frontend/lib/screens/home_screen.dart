@@ -10,6 +10,8 @@ import '../services/api_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/db_helper.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class HomeScreen extends StatefulWidget {
   final String? username;
@@ -25,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Movie> _popularMovies = [];
   List<Movie> _trendingMovies = [];
   List<Movie> _topRatedMovies = [];
+  List<Movie> _genreClusteredMovies = [];
   bool _isLoading = true;
 
   @override
@@ -32,6 +35,38 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadMovies();
     _sendUsernameToApi();
+    if (widget.username != null) {
+      fetchGenreClusteredMovies(widget.username!);
+    }
+  }
+
+  Future<void> fetchGenreClusteredMovies(String username) async {
+    final baseUrl = dotenv.env['API_BASE_URL'];
+    final url = Uri.parse('$baseUrl/send-username');
+    final body = {"username": username};
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['recommended_movies'] != null) {
+          setState(() {
+            _genreClusteredMovies = (data['recommended_movies'] as List)
+                .map((json) => Movie.fromJson(json))
+                .toList();
+          });
+        }
+      } else {
+        print("❌ Failed to fetch movies: ${response.body}");
+      }
+    } catch (e) {
+      print("❌ Error fetching movies: $e");
+    }
   }
 
   Future<void> _sendUsernameToApi() async {
@@ -49,6 +84,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (username != null) {
+      // Fetch recommendations
+      fetchGenreClusteredMovies(username);
+      
       try {
         await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).sendUsernameToApi(username);
       } catch (e) {
@@ -172,6 +210,22 @@ class _HomeScreenState extends State<HomeScreen> {
           child: MovieCarousel(
             title: 'Recommended For You',
             movies: _popularMovies,
+            onSeeAll: () {},
+            onMovieTap: (movie) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MovieDetailsScreen(movie: movie),
+                ),
+              );
+            },
+          ),
+        ),
+
+        SliverToBoxAdapter(
+          child: MovieCarousel(
+            title: 'Your Genre Match Picks',
+            movies: _genreClusteredMovies,
             onSeeAll: () {},
             onMovieTap: (movie) {
               Navigator.push(
