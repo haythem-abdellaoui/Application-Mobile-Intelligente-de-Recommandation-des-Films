@@ -226,3 +226,76 @@ def update_user_genres(payload: UserGenresUpdate):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class UsernameData(BaseModel):
+    username: str
+
+@app.post("/send-username")
+async def receive_username(data: UsernameData):
+    print("📥 Received username:", data.username)
+
+    try:
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="movies_mobile"
+        )
+        cursor = conn.cursor(dictionary=True)
+
+        print("🔍 Fetching user from database...")
+
+        cursor.execute(
+            "SELECT userId, preferred_genres FROM users WHERE username = %s LIMIT 1",
+            (data.username,)
+        )
+        user = cursor.fetchone()
+
+        print("📌 User DB result:", user)
+
+        if not user:
+            print("❌ User not found")
+            raise HTTPException(status_code=404, detail="User not found")
+
+        g = list(map(int, user["preferred_genres"].split(",")))
+        print("🎛 Preferred genres vector:", g)
+
+        merged_features = [
+            g[2] | g[3],
+            g[2] | g[4],
+        ]
+
+        print("🧠 Cluster input features:", merged_features)
+
+        cluster_label = int(genre_cluster_model.predict([merged_features])[0])
+
+        print("🏷 Assigned cluster:", cluster_label)
+
+        preferred_genre_indices = [i for i, val in enumerate(g) if val == 1]
+        genre_names = ['Comedy','Drama','Action','Sci-Fi','Thriller','Romance','Adventure','Crime']
+        selected_genres = [genre_names[i] for i in preferred_genre_indices]
+
+        print("🎬 Selected genres for filtering:", selected_genres)
+
+        genre_conditions = " OR ".join(["genres LIKE %s" for _ in selected_genres])
+        sql = f"SELECT * FROM movies WHERE {genre_conditions} ORDER BY rating DESC LIMIT 10"
+
+        print("🔎 SQL Query:", sql)
+
+        cursor.execute(sql, [f"%{genre}%" for genre in selected_genres])
+        recommended_movies = cursor.fetchall()
+
+        print("🎥 Recommended movies:", recommended_movies)
+
+        cursor.close()
+        conn.close()
+
+        return {
+            "user_id": user["userId"],
+            "cluster": cluster_label,
+            "recommended_movies": recommended_movies
+        }
+
+    except Exception as e:
+        print("🔥 ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))

@@ -156,4 +156,28 @@ Future<void> updateUserGenresOnServerByUsername(
 
 
 
+  Future<void> sendUsernameToApi(String username) async {
+    final url = Uri.parse('$baseUrl/send-username');
+    
+    final body = {
+      "username": username,
+    };
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200) {
+        print("✅ Username sent successfully: $username");
+      } else {
+        print("❌ Failed to send username: ${response.body}");
+      }
+    } catch (e) {
+      print("Error sending username: $e");
+    }
+  }
+
 }

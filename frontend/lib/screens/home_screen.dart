@@ -6,9 +6,14 @@ import '../themes/app_theme.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'movie_details_screen.dart';
+import '../services/api_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../database/db_helper.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String? username;
+  const HomeScreen({super.key, this.username});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -26,6 +31,30 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadMovies();
+    _sendUsernameToApi();
+  }
+
+  Future<void> _sendUsernameToApi() async {
+    String? username = widget.username;
+
+    if (username == null) {
+      // Try to get from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('loggedInUserId');
+      if (userId != null) {
+        final db = DatabaseHelper();
+        final user = await db.getUserById(userId);
+        username = user?.username;
+      }
+    }
+
+    if (username != null) {
+      try {
+        await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).sendUsernameToApi(username);
+      } catch (e) {
+        print("Error sending username to API: $e");
+      }
+    }
   }
 
   Future<void> _loadMovies() async {

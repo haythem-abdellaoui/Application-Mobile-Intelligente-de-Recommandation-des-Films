@@ -52,7 +52,7 @@ class _SelectGenresScreenState extends State<SelectGenresScreen> {
         await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).sendGenresToApi(widget.userId, _selectedGenres.map((e) => e ? 1 : 0).toList());
 
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        MaterialPageRoute(builder: (_) => HomeScreen(username: user?.username)),
       );
     }
   }
