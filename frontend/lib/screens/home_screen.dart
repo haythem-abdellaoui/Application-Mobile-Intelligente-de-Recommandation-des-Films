@@ -259,7 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         
-        if (_predictedMovies.isNotEmpty)
+        
           SliverToBoxAdapter(
             child: MovieCarousel(
               title: 'Movies You’re Likely to Enjoy',
@@ -275,10 +275,10 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
           ),
-        if (_predictedLikeDislikeMovies.isNotEmpty)
+        
           SliverToBoxAdapter(
             child: MovieCarousel(
-              title: 'Recommended (Like/Dislike)',
+              title: 'Top Picks You’ll Love',
               movies: _predictedLikeDislikeMovies,
               onSeeAll: () {},
               onMovieTap: (movie) {
