@@ -8,6 +8,8 @@ import joblib
 import pandas as pd
 import time
 import numpy as np
+from xgboost import XGBClassifier
+
 
 app = FastAPI()
 
@@ -500,15 +502,15 @@ def predict_future_rating(req: PredictRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-xgb_like_model = load("models/xgb_classifier_predicting_like_vs_dislike_model.pkl")
+xgb_classifier = load("models/xgb_classifier_predicting_like_vs_dislike_model.pkl")
 
 class UsernameData(BaseModel):
     username: str
 
-@app.post("/PredictFutureRating")
-def predict_future_rating(req: PredictRequest):
+@app.post("/PredictFutureRatingLikeVsDislike")
+def predict_like_dislike(req: PredictRequest):
     try:
-        # Connect to MySQL
+        # Connexion à MySQL
         conn = mysql.connector.connect(
             host="localhost",
             user="root",
@@ -517,89 +519,92 @@ def predict_future_rating(req: PredictRequest):
         )
         cursor = conn.cursor(dictionary=True)
 
-        # ----------- FETCH USER -----------
-        cursor.execute(
-            "SELECT userId, age, occupation, preferred_genres FROM users WHERE username = %s",
-            (req.username,)
-        )
+        # Récupérer l'utilisateur
+        cursor.execute("SELECT userId, age, occupation, preferred_genres FROM users WHERE username = %s", (req.username,))
         user_row = cursor.fetchone()
-
         if not user_row:
-            raise HTTPException(404, "User not found")
+            raise HTTPException(status_code=404, detail="User not found")
 
         user_id = user_row["userId"]
-        user_age = user_row["age"]
-        user_occupation = int(user_row["occupation"]) if user_row["occupation"] else 0
+        user_age = user_row["age"] if user_row["age"] else 0
+        user_occupation = int(user_row["occupation"]) if user_row["occupation"] is not None else 0
 
-        # ----------- REBUILD CLUSTER FROM GENRES -----------
-        preferred_genres_str = user_row["preferred_genres"]
-        g = list(map(int, preferred_genres_str.split(",")))
-
-        # Cluster feature engineering (same as your existing cluster API)
-        merged_features = [
-            g[2] | g[3],
-            g[2] | g[4]
-        ]
-
-        user_cluster = int(genre_cluster_model.predict([merged_features])[0])
-
-        print("🏷 Calculated cluster:", user_cluster)
-
-        # ----------- FETCH MOVIES -----------
-        cursor.execute("SELECT id, title, rating FROM movies")
+        # Récupérer tous les films
+        cursor.execute("SELECT * FROM movies")
         movies = pd.DataFrame(cursor.fetchall())
-
         print(f"🎬 Loaded {len(movies)} movies")
 
-        # ----------- GLOBAL STATS -----------
-        global_avg_rating = movies["rating"].mean()
-        global_std_rating = movies["rating"].std()
+        if movies.empty:
+            return {"user_id": user_id, "recommended_movies": []}
 
-        # ----------- BUILD FEATURES FOR EACH MOVIE -----------
-        all_features = []
+        # Calculer les features pour chaque film
+        features_list = []
         for _, movie in movies.iterrows():
-
-            user_movie_avg_diff = global_avg_rating - movie["rating"]
+            avg_rating_by_occupation = movies['rating'].mean()
+            user_avg_rating = movies['rating'].mean()
+            user_std_rating = movies['rating'].std()
+            avg_rating_by_age = movies['rating'].mean()
+            user_movie_avg_diff = user_avg_rating - movie['rating']
+            movie_std_rating = movies['rating'].std()
+            movie_avg_viewer_age = user_age  # approximation
+            movie_popularity = len(movies)
+            occupation = user_occupation
+            avg_rating_by_cluster = 0  # pas de cluster pour l'instant
 
             features = [
-                global_avg_rating,       # avg_rating_by_occupation
-                global_avg_rating,       # user_avg_rating
-                global_std_rating,       # user_std_rating
-                global_avg_rating,       # avg_rating_by_age
-                user_movie_avg_diff,     # user_movie_avg_diff
-                global_std_rating,       # movie_std_rating
-                user_age,                # movie_avg_viewer_age (using real user age)
-                len(movies),             # movie_popularity
-                user_occupation,         # Occupation
-                float(user_cluster)      # avg_rating_by_cluster
+                avg_rating_by_occupation,
+                user_avg_rating,
+                user_std_rating,
+                avg_rating_by_age,
+                user_movie_avg_diff,
+                movie_std_rating,
+                movie_avg_viewer_age,
+                movie_popularity,
+                occupation,
+                avg_rating_by_cluster
             ]
+            features_list.append(features)
 
-            all_features.append(features)
+        X = np.array(features_list)
 
-        X = np.array(all_features)
+       # Prédire like vs dislike
+        predicted_labels = xgb_classifier.predict(X)
 
-        # ----------- PREDICT LIKE VS DISLIKE -----------
-        preds = xgb_classifier.predict(X)
+        # Convertir les prédictions en 0/1 selon seuil (ex: >3 = like)
+        movies['predicted_label'] = (predicted_labels > 3).astype(int)
 
-        movies["prediction"] = preds
+        # Debug : afficher toutes les prédictions
+        for i, row in movies.iterrows():
+            print(f"Movie: {row['title']}, Predicted like: {row['predicted_label']}")
 
-        liked = movies[movies["prediction"] == 1]
+        # Remplacer les NaN ou inf par une valeur sûre
+        movies.fillna(0, inplace=True)
+        movies.replace([np.inf, -np.inf], 0, inplace=True)
 
-        print(f"👍 User likes: {len(liked)} movies")
+        # Ne garder que les films aimés
+        liked_movies = movies[movies['predicted_label'] == 1]
+        top_movies = liked_movies.head(10)
+        recommended_movies = []
+        for _, row in top_movies.iterrows():
+            recommended_movies.append({
+                "id": str(row["id"]),
+                "title": row["title"],
+                "genres": row.get("genres", ""),
+                "year": str(row.get("year", "")),
+                "posterUrl": row.get("posterUrl", ""),
+                "predicted_label": int(row["predicted_label"])
+            })
+        
 
-        # Top 10 by rating
-        liked = liked.sort_values(by="rating", ascending=False).head(10)
-
-        result = liked.to_dict(orient="records")
 
         cursor.close()
         conn.close()
 
         return {
-            "user_id": user_id,
-            "recommended_movies": result
+            "user_id": str(user_id),
+            "recommended_movies": recommended_movies
         }
 
     except Exception as e:
         print("🔥 ERROR:", e)
-        raise HTTPException(500, str(e))
+        raise HTTPException(status_code=500, detail=str(e))

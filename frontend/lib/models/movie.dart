@@ -25,14 +25,14 @@ class Movie {
   factory Movie.fromJson(Map<String, dynamic> json) {
     return Movie(
       movieId: json['movieId']?.toString() ?? json['id']?.toString() ?? '',
-      title: json['title'] ?? '',
+      title: json['title']?.toString() ?? '',
       genres: json['genres'] is List 
-          ? List<String>.from(json['genres']) 
-          : (json['genres'] as String?)?.split(',') ?? [],
+          ? (json['genres'] as List).map((e) => e.toString()).toList()
+          : (json['genres']?.toString())?.split(',') ?? [],
       rating: (json['rating'] as num?)?.toDouble(),
-      year: json['year'] as int?,
-      description: json['description'],
-      posterUrl: json['posterUrl'],
+      year: json['year'] is int ? json['year'] : int.tryParse(json['year']?.toString() ?? ''),
+      description: json['description']?.toString(),
+      posterUrl: json['posterUrl']?.toString(),
     );
   }
 

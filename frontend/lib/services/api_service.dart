@@ -206,4 +206,27 @@ Future<void> updateUserGenresOnServerByUsername(
     }
   }
 
+
+  Future<List<Movie>> fetchPredictedMoviesLikeVsDislike(String username) async {
+    final baseUrl = dotenv.env['API_BASE_URL'] ?? '';
+    final uri = Uri.parse('$baseUrl/PredictFutureRatingLikeVsDislike');
+    final body = jsonEncode({'username': username});
+    try {
+      final resp = await http
+          .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(seconds: 15));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        final moviesJson = data['recommended_movies'] as List<dynamic>? ?? [];
+        return moviesJson.map((m) => Movie.fromJson(m as Map<String, dynamic>)).toList();
+      } else {
+        print('❌ Failed to fetch predicted movies: ${resp.statusCode} ${resp.body}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error fetching predicted movies: $e');
+      return [];
+    }
+  }
+
 }
