@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from joblib import load
 from typing import List, Dict, Optional
@@ -9,6 +9,8 @@ import pandas as pd
 import time
 import numpy as np
 from xgboost import XGBClassifier
+import pickle
+import io
 
 
 app = FastAPI()
@@ -541,6 +543,7 @@ def predict_like_dislike(req: PredictRequest):
         # Ensure numeric fields
         movies.fillna(0, inplace=True)
 
+        
         # Compute features per movie
         features_list = []
         for _, movie in movies.iterrows():
@@ -600,6 +603,281 @@ def predict_like_dislike(req: PredictRequest):
         cursor.close()
         conn.close()
 
+        return {"user_id": user_id, "recommended_movies": recommended_movies}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/upload_ratings")
+async def upload_ratings(file: UploadFile = File(...)):
+    if not file.filename.endswith(".dat"):
+        raise HTTPException(status_code=400, detail="Only .dat files allowed")
+
+    content = await file.read()
+    df = pd.read_csv(io.StringIO(content.decode()), sep="|", engine='python',
+                     names=["UserID", "MovieID", "Rating", "Timestamp"])
+
+    # Replace NaN with None for MySQL
+    df = df.where(pd.notnull(df), None)
+
+    conn = mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="movies_mobile"
+    )
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ratings (
+            UserID INT NOT NULL,
+            MovieID INT NOT NULL,
+            Rating FLOAT,
+            Timestamp BIGINT,
+            PRIMARY KEY (UserID, MovieID)
+        )
+    """)
+
+    insert_query = """
+        INSERT INTO ratings (UserID, MovieID, Rating, Timestamp)
+        VALUES (%s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE Rating=VALUES(Rating), Timestamp=VALUES(Timestamp)
+    """
+
+    for row in df.itertuples(index=False):
+        rating = row.Rating if pd.notna(row.Rating) else None
+        timestamp = row.Timestamp if pd.notna(row.Timestamp) else None
+        cursor.execute(insert_query, (row.UserID, row.MovieID, rating, timestamp))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"message": f"Inserted {len(df)} ratings successfully"}
+
+
+
+kmeans_model = joblib.load("models/kmeans_model_cluster_users_based_on_their_training.pkl")
+
+class PredictRequest(BaseModel):
+    username: str
+
+@app.post("/UserRatingsCluster")
+def recommend_movies(req: PredictRequest):
+    try:
+        username = req.username
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="movies_mobile"
+        )
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("SELECT UserID FROM users WHERE username=%s", (username,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+        user_id = int(user_row["UserID"])
+
+        cursor.execute("SELECT UserID, MovieID, Rating FROM ratings")
+        ratings_df = pd.DataFrame(cursor.fetchall())
+        if ratings_df.empty:
+            # No ratings in system at all - return popular movies
+            cursor.execute("SELECT * FROM movies ORDER BY RAND() LIMIT 10")
+            movies = cursor.fetchall()
+            recommended_movies = [{
+                "id": int(row.get("id", 0)),
+                "title": row.get("title", ""),
+                "genres": row.get("genres", ""),
+                "cluster": 0,
+                "score": 0.0
+            } for row in movies]
+            cursor.close()
+            conn.close()
+            return {"user_id": user_id, "recommended_movies": recommended_movies}
+
+        ratings_df = ratings_df.dropna(subset=["UserID", "MovieID", "Rating"])
+        ratings_df["UserID"] = ratings_df["UserID"].astype(int)
+        ratings_df["MovieID"] = ratings_df["MovieID"].astype(int)
+        ratings_df["Rating"] = ratings_df["Rating"].astype(float)
+
+        # Get user's ratings
+        user_ratings = ratings_df[ratings_df["UserID"] == user_id].set_index("MovieID")["Rating"]
+
+        # Calculate user statistics for clustering (only for users who have ratings)
+        all_user_stats = ratings_df.groupby("UserID")["Rating"].agg(
+            rating_count=lambda x: (x>0).sum(),
+            rating_mean="mean",
+            rating_std="std",
+            high_rating_ratio=lambda x: (x>=4).sum() / (x>0).sum() if (x>0).sum()>0 else 0
+        ).fillna(0)
+
+        # Predict clusters for all users WHO HAVE RATINGS
+        all_user_clusters = kmeans_model.predict(all_user_stats.values)
+        all_user_stats['cluster'] = all_user_clusters
+        
+        # Determine user's cluster
+        if user_id in all_user_stats.index:
+            user_cluster = all_user_stats.loc[user_id]['cluster']
+        else:
+            # New user with no ratings - predict which cluster they'd belong to
+            # Use overall average stats as placeholder
+            avg_stats = all_user_stats.iloc[:, :-1].mean().values.reshape(1, -1)
+            user_cluster = int(kmeans_model.predict(avg_stats)[0])
+
+        # Get ALL users in the same cluster (not just those with ratings)
+        cluster_users = all_user_stats[all_user_stats['cluster'] == user_cluster].index
+        cluster_ratings = ratings_df[ratings_df["UserID"].isin(cluster_users)]
+
+        # DEBUG: Print diagnostics
+        print(f"\n=== DEBUG INFO FOR USER {user_id} ===")
+        print(f"User cluster: {user_cluster}")
+        print(f"Users in cluster: {len(cluster_users)}")
+        print(f"User has rated {len(user_ratings)} movies")
+        
+        # Handle different scenarios
+        if len(cluster_ratings) == 0:
+            # No cluster data - return most popular movies overall
+            print("No cluster data, returning popular movies")
+            overall_popular = ratings_df.groupby("MovieID").agg({
+                "Rating": ["mean", "count"]
+            }).reset_index()
+            overall_popular.columns = ["MovieID", "avg_rating", "rating_count"]
+            overall_popular = overall_popular[overall_popular["rating_count"] >= 5]
+            overall_popular["score"] = overall_popular["avg_rating"] * np.log1p(overall_popular["rating_count"])
+            personalized_scores = dict(zip(overall_popular["MovieID"], overall_popular["score"]))
+        elif user_ratings.empty or len(user_ratings) < 3:
+            # New user or user with few ratings: use cluster averages with popularity boost
+            print("Using cluster averages with popularity boost")
+            cluster_movie_stats = cluster_ratings.groupby("MovieID").agg({
+                "Rating": ["mean", "count"]
+            }).reset_index()
+            cluster_movie_stats.columns = ["MovieID", "avg_rating", "rating_count"]
+            # Boost popular movies in cluster
+            cluster_movie_stats["score"] = cluster_movie_stats["avg_rating"] * np.log1p(cluster_movie_stats["rating_count"])
+            personalized_scores = dict(zip(cluster_movie_stats["MovieID"], cluster_movie_stats["score"]))
+        else:
+            # Existing user with enough ratings: Use collaborative filtering
+            print("Using collaborative filtering")
+            user_movies = set(user_ratings.index)
+            
+            # Calculate similarity with each user based on commonly rated movies
+            user_similarities = {}
+            for other_user in cluster_users:
+                if other_user == user_id:
+                    continue
+                
+                other_ratings = ratings_df[ratings_df["UserID"] == other_user].set_index("MovieID")["Rating"]
+                
+                # Find common movies
+                common_movies = user_movies.intersection(set(other_ratings.index))
+                
+                if len(common_movies) >= 2:  # Need at least 2 common ratings
+                    # Get ratings for common movies
+                    user_common = user_ratings.loc[list(common_movies)]
+                    other_common = other_ratings.loc[list(common_movies)]
+                    
+                    # Calculate Pearson correlation
+                    correlation = user_common.corr(other_common)
+                    
+                    if not np.isnan(correlation) and correlation > 0:
+                        user_similarities[other_user] = correlation
+            
+            print(f"Found {len(user_similarities)} similar users with correlation > 0")
+            
+            if len(user_similarities) == 0:
+                # No similar users found, use cluster average with popularity
+                cluster_movie_stats = cluster_ratings.groupby("MovieID").agg({
+                    "Rating": ["mean", "count"]
+                }).reset_index()
+                cluster_movie_stats.columns = ["MovieID", "avg_rating", "rating_count"]
+                cluster_movie_stats["score"] = cluster_movie_stats["avg_rating"] * np.log1p(cluster_movie_stats["rating_count"])
+                personalized_scores = dict(zip(cluster_movie_stats["MovieID"], cluster_movie_stats["score"]))
+                print("No similar users found, using cluster averages with popularity")
+            else:
+                # Get top 10 most similar users
+                top_similar = sorted(user_similarities.items(), key=lambda x: x[1], reverse=True)[:10]
+                similar_user_ids = [uid for uid, _ in top_similar]
+                similar_weights = np.array([sim for _, sim in top_similar])
+                
+                # Normalize weights
+                similar_weights = similar_weights / similar_weights.sum()
+                
+                print(f"Top similar user: {similar_user_ids[0]} with correlation {top_similar[0][1]:.3f}")
+                
+                # Get ratings from similar users
+                similar_users_ratings = ratings_df[ratings_df["UserID"].isin(similar_user_ids)]
+                
+                # Calculate weighted average for each movie
+                personalized_scores = {}
+                for movie_id in similar_users_ratings["MovieID"].unique():
+                    if movie_id in user_ratings.index:
+                        continue  # Skip already rated
+                    
+                    # Get ratings from similar users for this movie
+                    movie_ratings_df = similar_users_ratings[similar_users_ratings["MovieID"] == movie_id]
+                    
+                    weighted_sum = 0
+                    weight_sum = 0
+                    
+                    for idx, (uid, weight) in enumerate(zip(similar_user_ids, similar_weights)):
+                        user_rating = movie_ratings_df[movie_ratings_df["UserID"] == uid]["Rating"].values
+                        if len(user_rating) > 0:
+                            weighted_sum += user_rating[0] * weight
+                            weight_sum += weight
+                    
+                    if weight_sum > 0:
+                        personalized_scores[movie_id] = weighted_sum / weight_sum
+
+        print(f"Generated {len(personalized_scores)} personalized scores")
+        
+        # Get all movies from database
+        cursor.execute("SELECT * FROM movies")
+        movies = pd.DataFrame(cursor.fetchall())
+
+        if movies.empty:
+            cursor.close()
+            conn.close()
+            return {"user_id": user_id, "recommended_movies": []}
+
+        # Filter out already rated movies
+        user_rated_movies = user_ratings.index.tolist()
+        movies = movies[~movies['id'].isin(user_rated_movies)]
+
+        # Apply personalized scores
+        movies['score'] = movies['id'].map(personalized_scores).fillna(0)
+        
+        # Add some randomness to break ties and add variety
+        # Hash user_id to get a valid seed (0 to 2^32-1)
+        seed = hash(str(user_id)) % (2**32)
+        np.random.seed(seed)
+        movies['random_boost'] = np.random.uniform(0, 0.2, size=len(movies))
+        movies['final_score'] = movies['score'] + movies['random_boost']
+
+        # Sort by final score and get top 10
+        top_movies = movies.sort_values(by='final_score', ascending=False).head(10)
+        
+        if len(top_movies) > 0:
+            print(f"Top movie score: {top_movies.iloc[0]['score']:.3f}")
+        print("=== END DEBUG ===\n")
+
+        recommended_movies = [{
+            "id": int(row.get("id", 0)),
+            "title": row.get("title", ""),
+            "genres": row.get("genres", ""),
+            "cluster": int(user_cluster),
+            "score": float(row.get("score", 0))
+        } for _, row in top_movies.iterrows()]
+
+        cursor.close()
+        conn.close()
+        
         return {"user_id": user_id, "recommended_movies": recommended_movies}
 
     except Exception as e:
