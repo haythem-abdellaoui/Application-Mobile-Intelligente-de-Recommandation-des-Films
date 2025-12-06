@@ -872,6 +872,7 @@ def recommend_movies(req: PredictRequest):
             "title": row.get("title", ""),
             "genres": row.get("genres", ""),
             "cluster": int(user_cluster),
+            "posterUrl": row.get("posterUrl", ""),
             "score": float(row.get("score", 0))
         } for _, row in top_movies.iterrows()]
 

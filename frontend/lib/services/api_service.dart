@@ -229,4 +229,21 @@ Future<void> updateUserGenresOnServerByUsername(
     }
   }
 
+  Future<List<Movie>> getClusterBasedOnRatings(String username) async {
+    final url = Uri.parse('$baseUrl/UserRatingsCluster');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'username': username}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final moviesJson = data['recommended_movies'] as List;
+      return moviesJson.map((json) => Movie.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to fetch recommended movies: ${response.body}');
+    }
+  }
+
 }

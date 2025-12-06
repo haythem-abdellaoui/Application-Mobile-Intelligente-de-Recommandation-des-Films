@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Movie> _genreClusteredMovies = [];
   List<Movie> _predictedMovies = [];
   List<Movie> _predictedLikeDislikeMovies = [];
+  List<Movie> _clusterBasedRatingsMovies = [];
   bool _isLoading = true;
 
   @override
@@ -109,6 +110,17 @@ class _HomeScreenState extends State<HomeScreen> {
             _predictedLikeDislikeMovies = predictedLikeDislikeMovies;
           });
           print ('✅ Predicted Like/Dislike movies fetched successfully: ${predictedLikeDislikeMovies.length} movies');
+        }
+
+        // Fetch cluster based ratings movies
+        final clusterBasedRatingsMovies = await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).getClusterBasedOnRatings(username);
+        if (mounted) {
+          setState(() {
+            _predictedMovies = predictedMovies;
+            _predictedLikeDislikeMovies = predictedLikeDislikeMovies;
+            _clusterBasedRatingsMovies = clusterBasedRatingsMovies;
+          });
+          print ('✅ Cluster based ratings movies fetched successfully: ${clusterBasedRatingsMovies.length} movies');
         }
       } catch (e) {
         print("Error sending username to API: $e");
@@ -280,6 +292,23 @@ class _HomeScreenState extends State<HomeScreen> {
             child: MovieCarousel(
               title: 'Top Picks You’ll Love',
               movies: _predictedLikeDislikeMovies,
+              onSeeAll: () {},
+              onMovieTap: (movie) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MovieDetailsScreen(movie: movie),
+                  ),
+                );
+              },
+            ),
+          ),
+        
+        if (_clusterBasedRatingsMovies.isNotEmpty)
+          SliverToBoxAdapter(
+            child: MovieCarousel(
+              title: 'Loved by Users Like You',
+              movies: _clusterBasedRatingsMovies,
               onSeeAll: () {},
               onMovieTap: (movie) {
                 Navigator.push(
