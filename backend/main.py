@@ -412,9 +412,6 @@ class PredictRequest(BaseModel):
 @app.post("/PredictFutureRating")
 def predict_future_rating(req: PredictRequest):
     try:
-        print(f"🔹 Received username: {req.username}")
-
-        # Connect to MySQL
         conn = mysql.connector.connect(
             host="localhost",
             user="root",
@@ -424,62 +421,69 @@ def predict_future_rating(req: PredictRequest):
         cursor = conn.cursor(dictionary=True)
 
         # Get user info
-        cursor.execute("SELECT userId, age, occupation FROM users WHERE username = %s", (req.username,))
+        cursor.execute("SELECT userId, preferred_genres, age, occupation FROM users WHERE username = %s", (req.username,))
         user_row = cursor.fetchone()
-        print(f"📌 User DB result: {user_row}")
-
         if not user_row:
             raise HTTPException(status_code=404, detail="User not found")
 
         user_id = user_row['userId']
         user_age = user_row['age']
         user_occupation = int(user_row['occupation']) if user_row['occupation'] is not None else 0
-        print(f"🎛 User age: {user_age}, occupation: {user_occupation}")
+        user_genres = list(map(int, user_row['preferred_genres'].split(",")))
+
+        # Compute cluster from preferred genres
+        merged_features = [
+            user_genres[2] | user_genres[3],
+            user_genres[2] | user_genres[4],
+        ]
+        cluster_label = int(genre_cluster_model.predict([merged_features])[0])
 
         # Fetch all movies
         cursor.execute("SELECT * FROM movies")
         movies = pd.DataFrame(cursor.fetchall())
-        print(f"🎥 Total movies fetched: {len(movies)}")
 
-        # Compute features for each movie
         features_list = []
-        for idx, movie in movies.iterrows():
+        for _, movie in movies.iterrows():
+            # User-specific features (approximate since we don't have user ratings)
             user_avg_rating = movies['rating'].mean()
             user_std_rating = movies['rating'].std()
+
+            # Movie-specific features
             movie_std_rating = movies['rating'].std()
-            movie_avg_viewer_age = movies['rating'].mean()  # placeholder
+            movie_avg_viewer_age = user_age if user_age else movies['rating'].mean()  # fallback
             movie_popularity = len(movies)
-            avg_rating_by_occupation = movies['rating'].mean()
-            avg_rating_by_age = movies['rating'].mean()
+
+            # User-movie interaction
+            genre_match = sum(user_genres[i] for i, g in enumerate(movie['genres'].split(',')) if i < len(user_genres))
             user_movie_avg_diff = user_avg_rating - movie['rating']
+
+            # Occupation and cluster features
+            avg_rating_by_occupation = movies['rating'].mean()
             avg_rating_by_cluster = movies['rating'].mean()
 
             features = [
                 avg_rating_by_occupation,
                 user_avg_rating,
                 user_std_rating,
-                avg_rating_by_age,
+                movie_avg_viewer_age,
                 user_movie_avg_diff,
                 movie_std_rating,
-                movie_avg_viewer_age,
                 movie_popularity,
                 user_occupation,
-                avg_rating_by_cluster
+                cluster_label,
+                genre_match
             ]
             features_list.append(features)
 
-            if idx < 3:
-                print(f"🔹 Sample features for movie {movie['title']}: {features}")
-
         X = np.array(features_list)
         predicted_ratings = xgb_model.predict(X)
-        print(f"🧠 Predicted ratings sample: {predicted_ratings[:5]}")
 
-        # Attach predictions to movies
         movies['predicted_rating'] = predicted_ratings
         top_movies = movies.sort_values(by='predicted_rating', ascending=False).head(10)
         recommended_movies = top_movies.to_dict(orient='records')
-        print(f"🏆 Top recommended movies: {[m['title'] for m in recommended_movies]}")
+
+        print(f"🔹 Features & prediction for user {user_id}: {features_list[:1]} ...")
+        print(f"🎥 Top recommended movies: {recommended_movies}")
 
         cursor.close()
         conn.close()
@@ -487,9 +491,10 @@ def predict_future_rating(req: PredictRequest):
         return {
             "user_id": user_id,
             "username": req.username,
+            "cluster": cluster_label,
             "recommended_movies": recommended_movies
         }
 
     except Exception as e:
-        print(f"❌ Error in PredictFutureRating: {e}")
+        print("🔥 ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
