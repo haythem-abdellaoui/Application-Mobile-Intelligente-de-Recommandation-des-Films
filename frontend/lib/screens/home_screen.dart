@@ -28,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Movie> _trendingMovies = [];
   List<Movie> _topRatedMovies = [];
   List<Movie> _genreClusteredMovies = [];
+  List<Movie> _predictedMovies = [];
   bool _isLoading = true;
 
   @override
@@ -89,6 +90,15 @@ class _HomeScreenState extends State<HomeScreen> {
       
       try {
         await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).sendUsernameToApi(username);
+        
+        // Fetch predicted movies
+        final predictedMovies = await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).fetchPredictedMoviesRatings(username);
+        if (mounted) {
+          setState(() {
+            _predictedMovies = predictedMovies;
+          });
+          print ('✅ Predicted movies fetched successfully: ${predictedMovies.length} movies');
+        }
       } catch (e) {
         print("Error sending username to API: $e");
       }
@@ -237,6 +247,23 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
         ),
+        
+        if (_predictedMovies.isNotEmpty)
+          SliverToBoxAdapter(
+            child: MovieCarousel(
+              title: 'Movies You’re Likely to Enjoy',
+              movies: _predictedMovies,
+              onSeeAll: () {},
+              onMovieTap: (movie) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MovieDetailsScreen(movie: movie),
+                  ),
+                );
+              },
+            ),
+          ),
         const SliverToBoxAdapter(
           child: SizedBox(height: 16),
         ),

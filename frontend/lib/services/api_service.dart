@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/material.dart';
 import '../models/user.dart';
+import '../models/movie.dart';
 
 
 class ApiService {
@@ -177,6 +178,31 @@ Future<void> updateUserGenresOnServerByUsername(
       }
     } catch (e) {
       print("Error sending username: $e");
+    }
+  }
+
+  Future<List<Movie>> fetchPredictedMoviesRatings(String username) async {
+    final url = Uri.parse('$baseUrl/PredictFutureRating');
+    final body = jsonEncode({"username": username});
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final moviesJson = data['recommended_movies'] as List;
+        return moviesJson.map((json) => Movie.fromJson(json)).toList();
+      } else {
+        print("❌ Failed to fetch predicted movies: ${response.body}");
+        return [];
+      }
+    } catch (e) {
+      print("Error fetching predicted movies: $e");
+      return [];
     }
   }
 

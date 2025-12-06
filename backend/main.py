@@ -7,6 +7,7 @@ from xgboost import XGBRegressor
 import joblib
 import pandas as pd
 import time
+import numpy as np
 
 app = FastAPI()
 
@@ -402,4 +403,93 @@ def compute_features(req: UserMovieRequest):
         return {"user_id": req.user_id, "movie_id": req.movie_id, "features": features}
 
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PredictRequest(BaseModel):
+    username: str
+
+@app.post("/PredictFutureRating")
+def predict_future_rating(req: PredictRequest):
+    try:
+        print(f"🔹 Received username: {req.username}")
+
+        # Connect to MySQL
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="movies_mobile"
+        )
+        cursor = conn.cursor(dictionary=True)
+
+        # Get user info
+        cursor.execute("SELECT userId, age, occupation FROM users WHERE username = %s", (req.username,))
+        user_row = cursor.fetchone()
+        print(f"📌 User DB result: {user_row}")
+
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_id = user_row['userId']
+        user_age = user_row['age']
+        user_occupation = int(user_row['occupation']) if user_row['occupation'] is not None else 0
+        print(f"🎛 User age: {user_age}, occupation: {user_occupation}")
+
+        # Fetch all movies
+        cursor.execute("SELECT * FROM movies")
+        movies = pd.DataFrame(cursor.fetchall())
+        print(f"🎥 Total movies fetched: {len(movies)}")
+
+        # Compute features for each movie
+        features_list = []
+        for idx, movie in movies.iterrows():
+            user_avg_rating = movies['rating'].mean()
+            user_std_rating = movies['rating'].std()
+            movie_std_rating = movies['rating'].std()
+            movie_avg_viewer_age = movies['rating'].mean()  # placeholder
+            movie_popularity = len(movies)
+            avg_rating_by_occupation = movies['rating'].mean()
+            avg_rating_by_age = movies['rating'].mean()
+            user_movie_avg_diff = user_avg_rating - movie['rating']
+            avg_rating_by_cluster = movies['rating'].mean()
+
+            features = [
+                avg_rating_by_occupation,
+                user_avg_rating,
+                user_std_rating,
+                avg_rating_by_age,
+                user_movie_avg_diff,
+                movie_std_rating,
+                movie_avg_viewer_age,
+                movie_popularity,
+                user_occupation,
+                avg_rating_by_cluster
+            ]
+            features_list.append(features)
+
+            if idx < 3:
+                print(f"🔹 Sample features for movie {movie['title']}: {features}")
+
+        X = np.array(features_list)
+        predicted_ratings = xgb_model.predict(X)
+        print(f"🧠 Predicted ratings sample: {predicted_ratings[:5]}")
+
+        # Attach predictions to movies
+        movies['predicted_rating'] = predicted_ratings
+        top_movies = movies.sort_values(by='predicted_rating', ascending=False).head(10)
+        recommended_movies = top_movies.to_dict(orient='records')
+        print(f"🏆 Top recommended movies: {[m['title'] for m in recommended_movies]}")
+
+        cursor.close()
+        conn.close()
+
+        return {
+            "user_id": user_id,
+            "username": req.username,
+            "recommended_movies": recommended_movies
+        }
+
+    except Exception as e:
+        print(f"❌ Error in PredictFutureRating: {e}")
         raise HTTPException(status_code=500, detail=str(e))
