@@ -11,6 +11,8 @@ import numpy as np
 from xgboost import XGBClassifier
 import pickle
 import io
+from fastapi import Body
+import random
 
 
 app = FastAPI()
@@ -883,3 +885,95 @@ def recommend_movies(req: PredictRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Recommendation
+DATA_PATH = "models/data.pkl"
+XGB_PATH = "models/xgb_model.pkl"
+CLUSTER_SIM_PATH = "models/cluster_sim.pkl"
+MOVIES_SIM_PATH = "models/movies_for_similarity.pkl"
+SIM_MATRIX_PATH = "models/similarity_matrix.pkl"
+
+data = pickle.load(open(DATA_PATH, "rb"))
+xgb_model2 = pickle.load(open(XGB_PATH, "rb"))
+cluster_sim = pickle.load(open(CLUSTER_SIM_PATH, "rb"))
+movies_sim = pickle.load(open(MOVIES_SIM_PATH, "rb"))
+similarity_matrix = pickle.load(open(SIM_MATRIX_PATH, "rb"))
+
+def connect_db():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="movies_mobile"
+    )
+
+@app.get("/recommendations")
+def get_personalized_recommendations(username: str, n: int = 15):
+    db = connect_db()
+    cursor = db.cursor(dictionary=True)
+
+    # Get user profile
+    cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+    profile = cursor.fetchone()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Username not found")
+
+    user_id = profile["userId"]
+    age = profile["age"] or 30
+    gender_m = 1 if profile["gender"] == "M" else 0
+    occupation = profile["occupation"] or 0
+    preferred_genres = profile.get("preferred_genres") or ""
+    preferred_genres_set = set(preferred_genres.split("|"))
+
+    # Determine cluster for new user (simple heuristic)
+    user_cluster = 1  # assume all cold users go to cluster 1
+
+    # Fetch movies
+    cursor.execute("SELECT * FROM movies")
+    movies = cursor.fetchall()
+    random.shuffle(movies)  # diversity
+
+    preds = []
+    for movie in movies:
+        genres = movie["genres"] or ""
+        genres_set = set(genres.split("|"))
+        genre_match = len(preferred_genres_set & genres_set)
+
+        # Build XGBoost feature vector with defaults for cold users
+        feat = np.array([
+            age,
+            gender_m,
+            occupation,
+            0,          # total_ratings = 0
+            3.0,        # avg_rating default
+            0,          # std_rating default
+            movie["rating"] or 0,
+            movie["year"] or 2000,
+            len(genres_set) if genres else 1,
+            1 if "Comedy" in genres_set else 0,
+            1 if "Drama" in genres_set else 0,
+            1 if "Action" in genres_set else 0,
+            1 if "Sci-Fi" in genres_set else 0,
+            1 if "Thriller" in genres_set else 0,
+            1 if "Romance" in genres_set else 0,
+            1 if "Adventure" in genres_set else 0,
+            1 if "Crime" in genres_set else 0,
+        ]).reshape(1, -1)
+
+        prob = xgb_model2.predict_proba(feat)[0, 1]
+        boost = 1.0 + 0.4 * cluster_sim[user_cluster].mean()
+        score = prob * boost + 0.3 * genre_match  # boost by preferred genres
+        score *= (1 + np.random.uniform(-0.05, 0.05))  # randomize
+
+        preds.append({
+            "id": movie["id"],
+            "title": movie["title"],
+            "genres": movie["genres"],
+            "posterUrl": movie.get("posterUrl", ""),
+            "cluster": user_cluster,
+            "score": score
+        })
+
+    preds.sort(key=lambda x: x["score"], reverse=True)
+    return {"recommended_movies": preds[:n]}
