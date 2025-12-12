@@ -977,3 +977,59 @@ def get_personalized_recommendations(username: str, n: int = 15):
 
     preds.sort(key=lambda x: x["score"], reverse=True)
     return {"recommended_movies": preds[:n]}
+
+#Ajouter Rating
+class RatingRequest(BaseModel):
+    username: str
+    movie_id: int
+    rating: float
+
+@app.post("/add-rating")
+def add_rating(req: RatingRequest):
+    try:
+        conn = connect_db()
+        cursor = conn.cursor(dictionary=True)
+
+        # Get userId (VARCHAR)
+        cursor.execute(
+            "SELECT userId FROM users WHERE username = %s",
+            (req.username,)
+        )
+        user_row = cursor.fetchone()
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_id_str = user_row["userId"]
+
+        # 🔥 MAP VARCHAR → INT (NO DB CHANGE)
+        user_id_int = abs(hash(user_id_str)) % 2_000_000_000
+
+        # Check movie
+        cursor.execute(
+            "SELECT id FROM movies WHERE id = %s",
+            (req.movie_id,)
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Movie not found")
+
+        # Insert / Update rating
+        cursor.execute("""
+            INSERT INTO ratings (UserID, MovieID, Rating)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE Rating = VALUES(Rating)
+        """, (user_id_int, req.movie_id, req.rating))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {
+            "message": "Rating added successfully",
+            "userId": user_id_str,
+            "mappedUserID": user_id_int,
+            "movieId": req.movie_id,
+            "rating": req.rating
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

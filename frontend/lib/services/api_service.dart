@@ -246,4 +246,29 @@ Future<void> updateUserGenresOnServerByUsername(
     }
   }
 
+  Future<void> addRating(String username, int movieId, double rating) async {
+    final url = Uri.parse('$baseUrl/add-rating');
+    final body = jsonEncode({
+      "username": username,
+      "movie_id": movieId,
+      "rating": rating,
+    });
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        print("✅ Rating submitted successfully");
+      } else {
+        throw Exception('Failed to submit rating: ${response.body}');
+      }
+    } catch (e) {
+      print("❌ Error submitting rating: $e");
+      rethrow;
+    }
+  }
 }

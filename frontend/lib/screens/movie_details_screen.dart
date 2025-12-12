@@ -1,16 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../services/api_service.dart';
 import '../models/movie.dart';
 import '../widgets/movie_card.dart';
 import '../themes/app_theme.dart';
 
-class MovieDetailsScreen extends StatelessWidget {
+class MovieDetailsScreen extends StatefulWidget {
   final Movie movie;
 
   const MovieDetailsScreen({
     super.key,
     required this.movie,
   });
+
+  @override
+  State<MovieDetailsScreen> createState() => _MovieDetailsScreenState();
+}
+
+class _MovieDetailsScreenState extends State<MovieDetailsScreen> {
+  double _rating = 3.0;
 
   @override
   Widget build(BuildContext context) {
@@ -28,9 +38,10 @@ class MovieDetailsScreen extends StatelessWidget {
               onPressed: () => Navigator.pop(context),
             ),
             flexibleSpace: FlexibleSpaceBar(
-              background: movie.posterUrl != null && movie.posterUrl!.isNotEmpty
+              background: widget.movie.posterUrl != null &&
+                      widget.movie.posterUrl!.isNotEmpty
                   ? CachedNetworkImage(
-                      imageUrl: movie.posterUrl!,
+                      imageUrl: widget.movie.posterUrl!,
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(
                         decoration: BoxDecoration(
@@ -106,7 +117,7 @@ class MovieDetailsScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              movie.title,
+                              widget.movie.title,
                               style: Theme.of(context).textTheme.displaySmall,
                             ),
                           ],
@@ -126,7 +137,7 @@ class MovieDetailsScreen extends StatelessWidget {
                               size: 20,
                             ),
                             Text(
-                              movie.rating?.toStringAsFixed(1) ?? 'N/A',
+                              widget.movie.rating?.toStringAsFixed(1) ?? 'N/A',
                               style: const TextStyle(
                                 color: AppTheme.white,
                                 fontWeight: FontWeight.bold,
@@ -142,7 +153,7 @@ class MovieDetailsScreen extends StatelessWidget {
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: movie.genres.map((genre) {
+                    children: widget.movie.genres.map((genre) {
                       return Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -163,64 +174,125 @@ class MovieDetailsScreen extends StatelessWidget {
                     }).toList(),
                   ),
                   const SizedBox(height: 24),
-                  // Action Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Liked!'),
-                                backgroundColor: AppTheme.primaryRed,
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.thumb_up),
-                          label: const Text('Like'),
+                  
+                  // Rating Slider
+                  Text(
+                    'Rate this movie',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkGray,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          _rating.toInt().toString(),
+                          style: const TextStyle(
+                            color: AppTheme.primaryRed,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
+                        Slider(
+                          value: _rating,
+                          min: 1,
+                          max: 5,
+                          divisions: 4,
+                          activeColor: AppTheme.primaryRed,
+                          inactiveColor: AppTheme.mediumGray,
+                          label: _rating.round().toString(),
+                          onChanged: (double value) {
+                            setState(() {
+                              _rating = value;
+                            });
+                          },
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('1', style: TextStyle(color: Colors.grey)),
+                              Text('5', style: TextStyle(color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        try {
+                          final prefs = await SharedPreferences.getInstance();
+                          final username = prefs.getString('loggedInUsername');
+
+                          if (username != null) {
+                            // Initialize ApiService
+                            final apiService = ApiService(
+                                baseUrl: dotenv.env['API_BASE_URL'] ?? '');
+                            
+                            await apiService.addRating(
+                              username, 
+                              int.parse(widget.movie.id), 
+                              _rating
+                            );
+
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Rating submitted: ${_rating.toInt()}',
+                                  ),
+                                  backgroundColor: AppTheme.primaryRed,
+                                ),
+                              );
+                            }
+                          } else {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Please log in to rate movies'),
+                                  backgroundColor: AppTheme.mediumGray,
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Disliked!'),
+                              SnackBar(
+                                content: Text('Error submitting rating: $e'),
                                 backgroundColor: AppTheme.mediumGray,
                               ),
                             );
-                          },
-                          icon: const Icon(Icons.thumb_down),
-                          label: const Text('Dislike'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.white,
-                            side: const BorderSide(color: AppTheme.white),
-                          ),
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryRed,
+                        foregroundColor: AppTheme.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Added to Watchlist!'),
-                            backgroundColor: AppTheme.primaryRed,
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add to Watchlist'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.white,
-                        side: const BorderSide(color: AppTheme.white),
+                      child: const Text(
+                        'Submit Rating',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
+                 
                   const SizedBox(height: 32),
                   // Similar Movies
                   Text(
@@ -234,7 +306,7 @@ class MovieDetailsScreen extends StatelessWidget {
                       if (!snapshot.hasData) {
                         return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
                       }
-                      final movies = snapshot.data!.where((m) => m.id != movie.id).toList();
+                      final movies = snapshot.data!.where((m) => m.id != widget.movie.id).toList();
                       return SizedBox(
                         height: 200,
                         child: ListView.builder(
@@ -272,7 +344,7 @@ class MovieDetailsScreen extends StatelessWidget {
                       if (!snapshot.hasData) {
                         return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
                       }
-                      final movies = snapshot.data!.where((m) => m.id != movie.id).toList();
+                      final movies = snapshot.data!.where((m) => m.id != widget.movie.id).toList();
                       return SizedBox(
                         height: 200,
                         child: ListView.builder(

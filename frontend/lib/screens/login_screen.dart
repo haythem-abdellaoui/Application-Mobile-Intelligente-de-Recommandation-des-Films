@@ -47,9 +47,10 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
         } else {
-            // Save logged-in user ID
+          // Save logged-in user ID and username
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('loggedInUserId', user.userId);
+          await prefs.setString('loggedInUsername', user.username);
 
           // Login successful, navigate to the home screen
           Navigator.pushReplacement(
