@@ -13,7 +13,7 @@ import pickle
 import io
 from fastapi import Body
 import random
-
+import hashlib
 
 app = FastAPI()
 
@@ -900,6 +900,11 @@ cluster_sim = pickle.load(open(CLUSTER_SIM_PATH, "rb"))
 movies_sim = pickle.load(open(MOVIES_SIM_PATH, "rb"))
 similarity_matrix = pickle.load(open(SIM_MATRIX_PATH, "rb"))
 
+class RatingRequest(BaseModel):
+    username: str
+    movie_id: int
+    rating: float
+
 def connect_db():
     return mysql.connector.connect(
         host="localhost",
@@ -908,49 +913,96 @@ def connect_db():
         database="movies_mobile"
     )
 
+@app.post("/add-rating")
+def add_rating(req: RatingRequest):
+    try:
+        conn = connect_db()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("SELECT userId FROM users WHERE username = %s", (req.username,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_id = user_row["userId"]
+        print(f"Debug: username='{req.username}', UserID={user_id}")  # debug message
+
+        cursor.execute("SELECT id FROM movies WHERE id = %s", (req.movie_id,))
+        print(f"Debug: movie_id={req.movie_id}")  # debug message
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Movie not found")
+
+        cursor.execute("""
+            INSERT INTO ratings (UserID, MovieID, Rating)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE Rating = VALUES(Rating)
+        """, (user_id, req.movie_id, req.rating))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {
+            "message": "Rating added successfully",
+            "UserID": user_id,
+            "movieId": req.movie_id,
+            "rating": req.rating
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/recommendations")
 def get_personalized_recommendations(username: str, n: int = 15):
     db = connect_db()
     cursor = db.cursor(dictionary=True)
 
-    # Get user profile
     cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
     profile = cursor.fetchone()
     if not profile:
         raise HTTPException(status_code=404, detail="Username not found")
 
     user_id = profile["userId"]
+    print(f"Debug: username='{username}', UserID={user_id}")
+
     age = profile["age"] or 30
     gender_m = 1 if profile["gender"] == "M" else 0
     occupation = profile["occupation"] or 0
-    preferred_genres = profile.get("preferred_genres") or ""
-    preferred_genres_set = set(preferred_genres.split("|"))
+    preferred_genres_set = set((profile.get("preferred_genres") or "").split("|"))
 
-    # Determine cluster for new user (simple heuristic)
-    user_cluster = 1  # assume all cold users go to cluster 1
+    cursor.execute("SELECT MovieID, Rating FROM ratings WHERE UserID = %s", (user_id,))
+    ratings = cursor.fetchall()
+    rated_ids = {r["MovieID"] for r in ratings}
+    total_ratings = len(ratings)
+    avg_rating = np.mean([r["Rating"] for r in ratings]) if ratings else 3.0
+    std_rating = np.std([r["Rating"] for r in ratings]) if ratings else 0.0
+    user_cluster = 1 if avg_rating >= 4 else 0
 
-    # Fetch movies
+    print(f"Debug: total_ratings={total_ratings}, avg_rating={avg_rating:.2f}, std_rating={std_rating:.2f}, cluster={user_cluster}")
+
     cursor.execute("SELECT * FROM movies")
     movies = cursor.fetchall()
-    random.shuffle(movies)  # diversity
+    random.shuffle(movies)
 
     preds = []
     for movie in movies:
-        genres = movie["genres"] or ""
-        genres_set = set(genres.split("|"))
+        if movie["id"] in rated_ids:
+            continue
+
+        genres_set = set(movie["genres"].split("|")) if movie["genres"] else set()
         genre_match = len(preferred_genres_set & genres_set)
 
-        # Build XGBoost feature vector with defaults for cold users
         feat = np.array([
             age,
             gender_m,
             occupation,
-            0,          # total_ratings = 0
-            3.0,        # avg_rating default
-            0,          # std_rating default
+            total_ratings,
+            avg_rating,
+            std_rating,
             movie["rating"] or 0,
             movie["year"] or 2000,
-            len(genres_set) if genres else 1,
+            len(genres_set) if genres_set else 1,
             1 if "Comedy" in genres_set else 0,
             1 if "Drama" in genres_set else 0,
             1 if "Action" in genres_set else 0,
@@ -962,9 +1014,11 @@ def get_personalized_recommendations(username: str, n: int = 15):
         ]).reshape(1, -1)
 
         prob = xgb_model2.predict_proba(feat)[0, 1]
+        rating_boost = sum([0.1 for r in ratings if r["Rating"] >= 4])
         boost = 1.0 + 0.4 * cluster_sim[user_cluster].mean()
-        score = prob * boost + 0.3 * genre_match  # boost by preferred genres
-        score *= (1 + np.random.uniform(-0.05, 0.05))  # randomize
+        score = (prob * boost + 0.3 * genre_match + rating_boost) * (1 + np.random.uniform(-0.03, 0.03))
+
+        print(f"Debug: MovieID={movie['id']}, title='{movie['title']}', prob={prob:.3f}, genre_match={genre_match}, rating_boost={rating_boost:.2f}, boost={boost:.3f}, score={score:.3f}")
 
         preds.append({
             "id": movie["id"],
@@ -976,60 +1030,7 @@ def get_personalized_recommendations(username: str, n: int = 15):
         })
 
     preds.sort(key=lambda x: x["score"], reverse=True)
+    cursor.close()
+    db.close()
     return {"recommended_movies": preds[:n]}
 
-#Ajouter Rating
-class RatingRequest(BaseModel):
-    username: str
-    movie_id: int
-    rating: float
-
-@app.post("/add-rating")
-def add_rating(req: RatingRequest):
-    try:
-        conn = connect_db()
-        cursor = conn.cursor(dictionary=True)
-
-        # Get userId (VARCHAR)
-        cursor.execute(
-            "SELECT userId FROM users WHERE username = %s",
-            (req.username,)
-        )
-        user_row = cursor.fetchone()
-        if not user_row:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user_id_str = user_row["userId"]
-
-        # 🔥 MAP VARCHAR → INT (NO DB CHANGE)
-        user_id_int = abs(hash(user_id_str)) % 2_000_000_000
-
-        # Check movie
-        cursor.execute(
-            "SELECT id FROM movies WHERE id = %s",
-            (req.movie_id,)
-        )
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Movie not found")
-
-        # Insert / Update rating
-        cursor.execute("""
-            INSERT INTO ratings (UserID, MovieID, Rating)
-            VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE Rating = VALUES(Rating)
-        """, (user_id_int, req.movie_id, req.rating))
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        return {
-            "message": "Rating added successfully",
-            "userId": user_id_str,
-            "mappedUserID": user_id_int,
-            "movieId": req.movie_id,
-            "rating": req.rating
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
