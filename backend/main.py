@@ -417,93 +417,90 @@ class PredictRequest(BaseModel):
 
 @app.post("/PredictFutureRating")
 def predict_future_rating(req: PredictRequest):
-    try:
-        conn = mysql.connector.connect(
-            host="localhost",
-            user="root",
-            password="",
-            database="movies_mobile"
+    conn = mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="movies_mobile"
+    )
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute(
+        "SELECT userId, preferred_genres, age, occupation FROM users WHERE username = %s",
+        (req.username,)
+    )
+    user_row = cursor.fetchone()
+    if not user_row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_id = user_row["userId"]
+    user_age = user_row["age"]
+    user_occupation = int(user_row["occupation"]) if user_row["occupation"] else 0
+    user_genres = list(map(int, user_row["preferred_genres"].split(",")))
+
+    merged_features = [
+        user_genres[2] | user_genres[3],
+        user_genres[2] | user_genres[4],
+    ]
+    cluster_label = int(genre_cluster_model.predict([merged_features])[0])
+
+    cursor.execute("SELECT * FROM movies")
+    movies = pd.DataFrame(cursor.fetchall())
+
+    cursor.execute(
+        "SELECT AVG(Rating) AS avg_r, STD(Rating) AS std_r FROM ratings WHERE UserID = %s",
+        (user_id,)
+    )
+    stats = cursor.fetchone()
+    user_avg_rating = stats["avg_r"] if stats["avg_r"] else movies["rating"].mean()
+    user_std_rating = stats["std_r"] if stats["std_r"] else movies["rating"].std()
+
+    avg_rating_by_occupation = user_avg_rating
+
+    features_list = []
+    for _, movie in movies.iterrows():
+        movie_std_rating = movies["rating"].std()
+        movie_avg_viewer_age = user_age
+        movie_popularity = len(movies)
+
+        genre_match = sum(
+            user_genres[i]
+            for i, _ in enumerate(movie["genres"].split(","))
+            if i < len(user_genres)
         )
-        cursor = conn.cursor(dictionary=True)
 
-        # Get user info
-        cursor.execute("SELECT userId, preferred_genres, age, occupation FROM users WHERE username = %s", (req.username,))
-        user_row = cursor.fetchone()
-        if not user_row:
-            raise HTTPException(status_code=404, detail="User not found")
+        user_movie_avg_diff = user_avg_rating - movie["rating"]
 
-        user_id = user_row['userId']
-        user_age = user_row['age']
-        user_occupation = int(user_row['occupation']) if user_row['occupation'] is not None else 0
-        user_genres = list(map(int, user_row['preferred_genres'].split(",")))
+        features_list.append([
+            avg_rating_by_occupation,
+            user_avg_rating,
+            user_std_rating,
+            movie_avg_viewer_age,
+            user_movie_avg_diff,
+            movie_std_rating,
+            movie_popularity,
+            user_occupation,
+            cluster_label,
+            genre_match
+        ])
 
-        # Compute cluster from preferred genres
-        merged_features = [
-            user_genres[2] | user_genres[3],
-            user_genres[2] | user_genres[4],
-        ]
-        cluster_label = int(genre_cluster_model.predict([merged_features])[0])
+    X = np.array(features_list)
+    movies["predicted_rating"] = xgb_model.predict(X)
 
-        # Fetch all movies
-        cursor.execute("SELECT * FROM movies")
-        movies = pd.DataFrame(cursor.fetchall())
+    top_movies = movies.sort_values(
+        by="predicted_rating", ascending=False
+    ).head(10)
 
-        features_list = []
-        for _, movie in movies.iterrows():
-            # User-specific features (approximate since we don't have user ratings)
-            user_avg_rating = movies['rating'].mean()
-            user_std_rating = movies['rating'].std()
+    cursor.close()
+    conn.close()
 
-            # Movie-specific features
-            movie_std_rating = movies['rating'].std()
-            movie_avg_viewer_age = user_age if user_age else movies['rating'].mean()  # fallback
-            movie_popularity = len(movies)
+    return {
+        "user_id": user_id,
+        "username": req.username,
+        "cluster": cluster_label,
+        "recommended_movies": top_movies.to_dict(orient="records")
+    }
 
-            # User-movie interaction
-            genre_match = sum(user_genres[i] for i, g in enumerate(movie['genres'].split(',')) if i < len(user_genres))
-            user_movie_avg_diff = user_avg_rating - movie['rating']
-
-            # Occupation and cluster features
-            avg_rating_by_occupation = movies['rating'].mean()
-            avg_rating_by_cluster = movies['rating'].mean()
-
-            features = [
-                avg_rating_by_occupation,
-                user_avg_rating,
-                user_std_rating,
-                movie_avg_viewer_age,
-                user_movie_avg_diff,
-                movie_std_rating,
-                movie_popularity,
-                user_occupation,
-                cluster_label,
-                genre_match
-            ]
-            features_list.append(features)
-
-        X = np.array(features_list)
-        predicted_ratings = xgb_model.predict(X)
-
-        movies['predicted_rating'] = predicted_ratings
-        top_movies = movies.sort_values(by='predicted_rating', ascending=False).head(10)
-        recommended_movies = top_movies.to_dict(orient='records')
-
-        print(f"🔹 Features & prediction for user {user_id}: {features_list[:1]} ...")
-        print(f"🎥 Top recommended movies: {recommended_movies}")
-
-        cursor.close()
-        conn.close()
-
-        return {
-            "user_id": user_id,
-            "username": req.username,
-            "cluster": cluster_label,
-            "recommended_movies": recommended_movies
-        }
-
-    except Exception as e:
-        print("🔥 ERROR:", e)
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 xgb_classifier = load("models/xgb_classifier_predicting_like_vs_dislike_model.pkl")
