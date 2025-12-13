@@ -198,66 +198,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 32)),
-              // ML Features Section
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'ML Features',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildMLFeatureCard(
-                        context,
-                        icon: Icons.group,
-                        title: 'Your Clusters',
-                        description: 'View users with similar preferences',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('ML Feature: Coming Soon'),
-                              backgroundColor: AppTheme.primaryRed,
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      _buildMLFeatureCard(
-                        context,
-                        icon: Icons.trending_up,
-                        title: 'Predicted Ratings',
-                        description: 'See your predicted movie ratings',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('ML Feature: Coming Soon'),
-                              backgroundColor: AppTheme.primaryRed,
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      _buildMLFeatureCard(
-                        context,
-                        icon: Icons.recommend,
-                        title: 'Recommended For You',
-                        description: 'Personalized recommendations',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('ML Feature: Coming Soon'),
-                              backgroundColor: AppTheme.primaryRed,
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              
               const SliverToBoxAdapter(child: SizedBox(height: 32)),
             ],
           ),

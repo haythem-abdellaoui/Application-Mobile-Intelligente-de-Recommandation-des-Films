@@ -31,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Movie> _predictedMovies = [];
   List<Movie> _predictedLikeDislikeMovies = [];
   List<Movie> _clusterBasedRatingsMovies = [];
+  List<Movie> _personalizedMovies = [];
   bool _isLoading = true;
 
   @override
@@ -100,6 +101,15 @@ class _HomeScreenState extends State<HomeScreen> {
             _predictedMovies = predictedMovies;
           });
           print ('✅ Predicted movies fetched successfully: ${predictedMovies.length} movies');
+        }
+
+        // Fetch personalized recommendations
+        final personalizedMovies = await ApiService(baseUrl: dotenv.env['API_BASE_URL']!).fetchPersonalizedRecommendations(username);
+        if (mounted) {
+          setState(() {
+            _personalizedMovies = personalizedMovies;
+          });
+          print ('✅ Personalized movies fetched successfully: ${personalizedMovies.length} movies');
         }
         
         // Fetch predicted movies (Like vs Dislike)
@@ -224,36 +234,23 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
         ),
-        SliverToBoxAdapter(
-          child: MovieCarousel(
-            title: 'Top Rated',
-            movies: _topRatedMovies,
-            onSeeAll: () {},
-            onMovieTap: (movie) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MovieDetailsScreen(movie: movie),
-                ),
-              );
-            },
+        
+        
+          SliverToBoxAdapter(
+            child: MovieCarousel(
+              title: 'Recommended For You',
+              movies: _personalizedMovies,
+              onSeeAll: () {},
+              onMovieTap: (movie) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MovieDetailsScreen(movie: movie),
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-        SliverToBoxAdapter(
-          child: MovieCarousel(
-            title: 'Recommended For You',
-            movies: _popularMovies,
-            onSeeAll: () {},
-            onMovieTap: (movie) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MovieDetailsScreen(movie: movie),
-                ),
-              );
-            },
-          ),
-        ),
 
         SliverToBoxAdapter(
           child: MovieCarousel(

@@ -271,4 +271,23 @@ Future<void> updateUserGenresOnServerByUsername(
       rethrow;
     }
   }
+
+  Future<List<Movie>> fetchPersonalizedRecommendations(String username) async {
+    final url = Uri.parse('$baseUrl/recommendations?username=$username');
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final moviesJson = data['recommended_movies'] as List;
+        return moviesJson.map((json) => Movie.fromJson(json)).toList();
+      } else {
+        print("❌ Failed to fetch personalized recommendations: ${response.body}");
+        return [];
+      }
+    } catch (e) {
+      print("❌ Error fetching personalized recommendations: $e");
+      return [];
+    }
+  }
 }
