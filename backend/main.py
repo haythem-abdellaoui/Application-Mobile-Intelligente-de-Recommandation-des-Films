@@ -268,6 +268,18 @@ async def receive_username(data: UsernameData):
             print("❌ User not found")
             raise HTTPException(status_code=404, detail="User not found")
 
+        user_id = str(user["userId"])
+        
+        # Get user's rated movies to exclude them
+        cursor.execute(
+            "SELECT MovieID FROM ratings WHERE UserID = %s",
+            (user_id,)
+        )
+        rated_movie_ids = [str(row["MovieID"]) for row in cursor.fetchall()]
+        num_ratings = len(rated_movie_ids)
+        
+        print(f"🎬 User has rated {num_ratings} movies")
+
         g = list(map(int, user["preferred_genres"].split(",")))
         print("🎛 Preferred genres vector:", g)
 
@@ -289,14 +301,33 @@ async def receive_username(data: UsernameData):
         print("🎬 Selected genres for filtering:", selected_genres)
 
         genre_conditions = " OR ".join(["genres LIKE %s" for _ in selected_genres])
-        sql = f"SELECT * FROM movies WHERE {genre_conditions} ORDER BY rating DESC LIMIT 10"
+        
+        # Exclude already rated movies
+        if rated_movie_ids:
+            placeholders = ",".join(["%s"] * len(rated_movie_ids))
+            sql = f"SELECT * FROM movies WHERE ({genre_conditions}) AND id NOT IN ({placeholders}) ORDER BY rating DESC LIMIT 20"
+            params = [f"%{genre}%" for genre in selected_genres] + rated_movie_ids
+        else:
+            sql = f"SELECT * FROM movies WHERE {genre_conditions} ORDER BY rating DESC LIMIT 20"
+            params = [f"%{genre}%" for genre in selected_genres]
 
         print("🔎 SQL Query:", sql)
 
-        cursor.execute(sql, [f"%{genre}%" for genre in selected_genres])
-        recommended_movies = cursor.fetchall()
+        cursor.execute(sql, params)
+        all_movies = cursor.fetchall()
+        
+        # Add variety: use rating count as seed for randomization
+        seed = hash(user_id + str(num_ratings)) % (2**32)
+        random.seed(seed)
+        
+        # Randomize and take top 10
+        if len(all_movies) > 10:
+            random.shuffle(all_movies)
+            recommended_movies = all_movies[:10]
+        else:
+            recommended_movies = all_movies
 
-        print("🎥 Recommended movies:", recommended_movies)
+        print(f"🎥 Recommended {len(recommended_movies)} movies")
 
         cursor.close()
         conn.close()
@@ -792,6 +823,10 @@ def recommend_movies(req: PredictRequest):
                     # Get ratings for common movies
                     user_common = user_ratings.loc[list(common_movies)]
                     other_common = other_ratings.loc[list(common_movies)]
+                    
+                    # Skip if either user has zero variance (all ratings are the same)
+                    if user_common.std() == 0 or other_common.std() == 0:
+                        continue
                     
                     # Calculate Pearson correlation
                     correlation = user_common.corr(other_common)
