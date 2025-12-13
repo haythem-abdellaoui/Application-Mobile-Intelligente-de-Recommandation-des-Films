@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../themes/app_theme.dart';
 import '../services/fetch_posters.dart';
 import '../models/movie.dart';
+import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -145,13 +147,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: OutlinedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Logout - Coming Soon'),
-                    backgroundColor: AppTheme.primaryRed,
-                  ),
-                );
+              onPressed: () async {
+                // Clear user session
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.clear();
+
+                if (context.mounted) {
+                  // Navigate to Login Screen and remove all previous routes
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (context) => const LoginScreen(),
+                    ),
+                    (route) => false,
+                  );
+                }
               },
               icon: const Icon(Icons.logout),
               label: const Text('Logout'),
