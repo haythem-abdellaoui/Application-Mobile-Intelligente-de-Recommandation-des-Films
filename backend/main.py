@@ -678,14 +678,19 @@ def recommend_movies(req: PredictRequest):
         )
         cursor = conn.cursor(dictionary=True)
 
-        cursor.execute("SELECT UserID FROM users WHERE username=%s", (username,))
+        cursor.execute("SELECT userId FROM users WHERE username=%s", (username,))
         user_row = cursor.fetchone()
         if not user_row:
             raise HTTPException(status_code=404, detail="User not found")
-        user_id = int(user_row["UserID"])
+        user_id = str(user_row["userId"])  # Keep as string!
 
         cursor.execute("SELECT UserID, MovieID, Rating FROM ratings")
         ratings_df = pd.DataFrame(cursor.fetchall())
+        
+        # Also get ratings specifically for this user (using their actual userId)
+        cursor.execute("SELECT UserID, MovieID, Rating FROM ratings WHERE UserID = %s", (user_id,))
+        user_specific_ratings = cursor.fetchall()
+        
         if ratings_df.empty:
             # No ratings in system at all - return popular movies
             cursor.execute("SELECT * FROM movies ORDER BY RAND() LIMIT 10")
@@ -702,12 +707,18 @@ def recommend_movies(req: PredictRequest):
             return {"user_id": user_id, "recommended_movies": recommended_movies}
 
         ratings_df = ratings_df.dropna(subset=["UserID", "MovieID", "Rating"])
-        ratings_df["UserID"] = ratings_df["UserID"].astype(int)
+        # Convert UserID to string to match our user_id type
+        ratings_df["UserID"] = ratings_df["UserID"].astype(str)
         ratings_df["MovieID"] = ratings_df["MovieID"].astype(int)
         ratings_df["Rating"] = ratings_df["Rating"].astype(float)
 
         # Get user's ratings
+        print(f"DEBUG: Looking for user_id={user_id}, type={type(user_id)}")
+        print(f"DEBUG: User-specific ratings from DB: {len(user_specific_ratings)}")
+        print(f"DEBUG: Available UserIDs in ratings: {ratings_df['UserID'].unique()[:10]}")
+        print(f"DEBUG: Total ratings in DB: {len(ratings_df)}")
         user_ratings = ratings_df[ratings_df["UserID"] == user_id].set_index("MovieID")["Rating"]
+        print(f"DEBUG: Found {len(user_ratings)} ratings for user {user_id}")
 
         # Calculate user statistics for clustering (only for users who have ratings)
         all_user_stats = ratings_df.groupby("UserID")["Rating"].agg(
@@ -853,8 +864,8 @@ def recommend_movies(req: PredictRequest):
         movies['score'] = movies['id'].map(personalized_scores).fillna(0)
         
         # Add some randomness to break ties and add variety
-        # Hash user_id to get a valid seed (0 to 2^32-1)
-        seed = hash(str(user_id)) % (2**32)
+        # Hash user_id + number of ratings to get a dynamic seed that changes with new ratings
+        seed = hash(str(user_id) + str(len(user_ratings))) % (2**32)
         np.random.seed(seed)
         movies['random_boost'] = np.random.uniform(0, 0.2, size=len(movies))
         movies['final_score'] = movies['score'] + movies['random_boost']
@@ -1014,8 +1025,6 @@ def get_personalized_recommendations(username: str, n: int = 15):
         rating_boost = sum([0.1 for r in ratings if r["Rating"] >= 4])
         boost = 1.0 + 0.4 * cluster_sim[user_cluster].mean()
         score = (prob * boost + 0.3 * genre_match + rating_boost) * (1 + np.random.uniform(-0.03, 0.03))
-
-        print(f"Debug: MovieID={movie['id']}, title='{movie['title']}', prob={prob:.3f}, genre_match={genre_match}, rating_boost={rating_boost:.2f}, boost={boost:.3f}, score={score:.3f}")
 
         preds.append({
             "id": movie["id"],
