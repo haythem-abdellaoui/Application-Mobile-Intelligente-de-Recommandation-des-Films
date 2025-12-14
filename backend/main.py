@@ -241,6 +241,7 @@ def update_user_genres(payload: UserGenresUpdate):
 class UsernameData(BaseModel):
     username: str
 
+# Clustering Users with the same genre preferences
 @app.post("/send-username")
 async def receive_username(data: UsernameData):
     print("📥 Received username:", data.username)
@@ -446,6 +447,7 @@ def compute_features(req: UserMovieRequest):
 class PredictRequest(BaseModel):
     username: str
 
+# XGB Predict Future Rating
 @app.post("/PredictFutureRating")
 def predict_future_rating(req: PredictRequest):
     conn = mysql.connector.connect(
@@ -539,6 +541,7 @@ xgb_classifier = load("models/xgb_classifier_predicting_like_vs_dislike_model.pk
 class UsernameData(BaseModel):
     username: str
 
+# XGB Predict Future Rating Like vs Dislike
 @app.post("/PredictFutureRatingLikeVsDislike")
 def predict_like_dislike(req: PredictRequest):
     try:
@@ -694,6 +697,7 @@ kmeans_model = joblib.load("models/kmeans_model_cluster_users_based_on_their_tra
 class PredictRequest(BaseModel):
     username: str
 
+# KMeans User Ratings Cluster
 @app.post("/UserRatingsCluster")
 def recommend_movies(req: PredictRequest):
     try:
