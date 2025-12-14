@@ -138,6 +138,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _handleRefresh() async {
+    await Future.wait([
+      _loadMovies(),
+      _sendUsernameToApi(),
+    ]);
+  }
+
   Future<void> _loadMovies() async {
     print('🏠 [HomeScreen] Loading movies...');
     try {
@@ -173,7 +180,11 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    return CustomScrollView(
+    return RefreshIndicator(
+      onRefresh: _handleRefresh,
+      color: AppTheme.primaryRed,
+      backgroundColor: AppTheme.darkGray,
+      child: CustomScrollView(
       slivers: [
         // App Bar
         SliverAppBar(
@@ -321,6 +332,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: SizedBox(height: 16),
         ),
       ],
+      ),
     );
   }
 
